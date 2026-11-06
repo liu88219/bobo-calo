@@ -495,7 +495,7 @@ export const App: React.FC = () => {
         <div className="max-w-xl mx-auto px-4 py-3 flex items-center justify-between">
           <div className="flex items-center gap-2.5">
             <img
-              src="./icon-192.png?v=3"
+              src="./icon-192.png?v=4"
               alt="BoboCalo"
               className="w-10 h-10 rounded-xl shadow-sm border border-[#DDD7C9] object-cover"
             />

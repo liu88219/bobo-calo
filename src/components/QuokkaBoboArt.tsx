@@ -42,7 +42,7 @@ function DtQuokkaHead({
   cy,
   scale = 1,
   filterId,
-  mouth = 'open',
+  mouth: _mouth = 'open',
   sweatDrop = false,
 }: {
   cx: number;
@@ -55,29 +55,19 @@ function DtQuokkaHead({
   return (
     <g transform={`translate(${cx}, ${cy}) scale(${scale})`}>
       <g filter={`url(#${filterId})`}>
-        {/* V2 Gold-Standard crown-ears + chubby lower-cheek silhouette */}
+        {/* V3 99% Gold-Standard touching crown-ears + bumpy caramel silhouette + mouthless chunky nose */}
         <path
-          d="M -11 -21
-             C -21 -32, -29 -22, -22 -9
-             C -27 0, -27 14, -19 21
+          d="M -0.5 -21
+             C -7 -33, -24 -29, -20 -13
+             C -27 -5, -27 14, -19 21
              C -11 26, 11 26, 19 21
-             C 27 14, 27 0, 22 -9
-             C 29 -22, 21 -32, 11 -21
-             C 6 -23, -6 -23, -11 -21 Z"
+             C 27 14, 27 -5, 20 -13
+             C 24 -29, 7 -33, 0.5 -21 Z"
           fill={FUR}
         />
-        <circle cx="-5.2" cy="-6" r="2.1" fill={INK} />
-        <circle cx="5.2" cy="-6" r="2.1" fill={INK} />
-        <ellipse cx="0" cy="3.2" rx="4.6" ry="6.2" fill={INK} />
-        {mouth === 'smile' && (
-          <path
-            d="M -3.8 11.2 Q 0 14 3.8 11.2"
-            fill="none"
-            stroke={INK}
-            strokeWidth="1.9"
-            strokeLinecap="round"
-          />
-        )}
+        <circle cx="-5.2" cy="-6" r="2.2" fill={INK} />
+        <circle cx="5.2" cy="-6" r="2.2" fill={INK} />
+        <ellipse cx="0" cy="3.6" rx="5.2" ry="6.1" fill={INK} />
       </g>
       {sweatDrop && (
         <path
@@ -195,15 +185,14 @@ function DtBobo({
               <rect x="12" y="3" width="14" height="11" rx="4" fill={RED_TEE} />
             </g>
           )}
-          {/* Calm gentle • • + ω gummy face */}
-          <circle cx="-4.5" cy="-9" r="1.8" fill={INK} />
-          <circle cx="4.5" cy="-9" r="1.8" fill={INK} />
-          <circle cx="0" cy="-4" r="1.7" fill={INK} />
+          {/* V3 99% Gold-Standard • • + connected upturned ω gummy face */}
+          <circle cx="-4.5" cy="-9.5" r="1.9" fill={INK} />
+          <circle cx="4.5" cy="-9.5" r="1.9" fill={INK} />
           <path
-            d="M -5 -0.2 Q -2.5 2.8 0 -0.8 Q 2.5 2.8 5 -0.2"
+            d="M 0 -5.2 L 0 -1.5 M -5.2 -1.6 Q -2.6 2.1 0 -1.6 Q 2.6 2.1 5.2 -1.6"
             fill="none"
             stroke={INK}
-            strokeWidth="1.8"
+            strokeWidth="2.1"
             strokeLinecap="round"
             strokeLinejoin="round"
           />
@@ -286,8 +275,8 @@ export const MascotDuoIllustration: React.FC<{
       : mood === 'proud'
         ? 'assets/gold-marshmallow-tower.webp'
         : 'assets/hero-bobo-calo.webp';
-  const bg = mood === 'greeting' ? 'bg-[#EFEAD9]' : 'bg-[#DBD7CA]';
-  const src = `./${file}?v=3`;
+  const bg = 'bg-[#D8D3C5]';
+  const src = `./${file}?v=4`;
 
   return (
     <div
