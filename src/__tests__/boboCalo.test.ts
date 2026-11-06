@@ -9,6 +9,9 @@ import {
   buildTextDbFormBody,
   loadLocalVaultSync,
   saveLocalVaultState,
+  syncWithCloudVault,
+  writePermanentCloud,
+  readPermanentCloud,
 } from '../services/cloudSync';
 import {
   createInitialVaultState,
@@ -40,7 +43,7 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     sample.profile.nickname = 'Mona';
 
     const cipher = await encryptVaultPayload(JSON.stringify(sample), 'quokka-test-pass');
-    expect(cipher.startsWith('BC1:')).toBe(true);
+    expect(cipher.startsWith('BC2:')).toBe(true);
     expect(cipher).not.toContain('AIzaTestDummyKey');
 
     // Verify URLSearchParams properly percent-encodes '+' if present
@@ -128,6 +131,7 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
 
   afterEach(() => {
     vi.restoreAllMocks();
+    vi.unstubAllGlobals();
   });
 
   it('recalculates calories strictly from user-edited dish names, portions, and correction notes', async () => {
@@ -268,5 +272,86 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     const recovered = loadLocalVaultSync();
     expect(recovered.meals).toHaveLength(1);
     expect(recovered.meals[0].id).toBe('meal-today-1');
+  });
+
+  it('rejects textdb.online HTTP 200 status:0 false positives, chunks >40KB payloads, and rescues iOS case-shifted passcodes', async () => {
+    const cloudKv = new Map<string, string>();
+    let activeBrowserStorage = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => activeBrowserStorage.get(k) ?? null,
+      setItem: (k: string, v: string) => activeBrowserStorage.set(k, v),
+      removeItem: (k: string) => activeBrowserStorage.delete(k),
+    });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('api.textdb.online/update/')) {
+        const params = new URLSearchParams(String(init?.body || ''));
+        const k = params.get('key') || '';
+        const v = params.get('value') || '';
+        if (v.length > 200000) {
+          return new Response(JSON.stringify({ status: 0, error: '内容最多20万字符' }), { status: 200 });
+        }
+        cloudKv.set(`online:${k}`, v);
+        return new Response(JSON.stringify({ status: 1 }), { status: 200 });
+      }
+      if (url.includes('textdb.online/')) {
+        const keyPart = decodeURIComponent(url.split('textdb.online/')[1].split('?')[0]);
+        return new Response(cloudKv.get(`online:${keyPart}`) || '', { status: 200 });
+      }
+      if (url.includes('textdb.dev/api/data/')) {
+        const keyPart = decodeURIComponent(url.split('textdb.dev/api/data/')[1].split('?')[0]);
+        if (init?.method === 'POST') {
+          const parsed = JSON.parse(String(init.body || '{}'));
+          cloudKv.set(`dev:${keyPart}`, parsed.payload || '');
+          return new Response(JSON.stringify(parsed), { status: 200 });
+        }
+        const saved = cloudKv.get(`dev:${keyPart}`);
+        return new Response(saved ? JSON.stringify({ payload: saved }) : '', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    }));
+
+    // 1. Test multi-chunk cloud write & read for >95KB payload
+    const largePayload = `BC2:${'A'.repeat(95000)}`;
+    const wrote = await writePermanentCloud('test_chunk_key', largePayload);
+    expect(wrote).toBe(true);
+    expect(cloudKv.get('online:test_chunk_key')?.startsWith('BCCHUNK1:3:')).toBe(true);
+    const readBack = await readPermanentCloud('test_chunk_key');
+    expect(readBack).toBe(largePayload);
+
+    // 2. Test Safari pushes with 'MonaSecret88' (iOS Shift capitalized) and Home Screen pulls with 'monasecret88'
+    const safariState = createInitialVaultState();
+    safariState.isUneditedDefault = false;
+    safariState.updatedAt = 88888;
+    safariState.meals = [
+      {
+        id: 'meal-sync-rescue-1',
+        dateKey: '2026-11-06',
+        category: 'dinner',
+        title: '鮭魚酪梨波奇碗',
+        items: [{ id: 'f1', name: '鮭魚波奇碗', portion: '1碗', calories: 560, proteinG: 32, carbsG: 55, fatG: 22 }],
+        totalCalories: 560,
+        proteinG: 32,
+        carbsG: 55,
+        fatG: 22,
+        praise: '超營養！',
+        createdAt: 88888,
+        updatedAt: 88888,
+      },
+    ];
+    const pushOutcome = await syncWithCloudVault(safariState, 'MonaSecret88', true);
+    expect(pushOutcome.ok).toBe(true);
+    expect(pushOutcome.pushedToCloud).toBe(true);
+
+    // Simulate isolated iPhone Home Screen standalone sandbox (fresh empty localStorage!)
+    activeBrowserStorage = new Map<string, string>();
+    const homeScreenBlank = createInitialVaultState();
+    const pullOutcome = await syncWithCloudVault(homeScreenBlank, 'monaSecret88', false);
+    expect(pullOutcome.ok).toBe(true);
+    expect(pullOutcome.pulledFromCloud).toBe(true);
+    expect(pullOutcome.matchedPasscode).toBe('MonaSecret88');
+    expect(pullOutcome.mergedState.meals).toHaveLength(1);
+    expect(pullOutcome.mergedState.meals[0].title).toBe('鮭魚酪梨波奇碗');
   });
 });

@@ -12,6 +12,8 @@ import {
   Lock,
   Sparkles,
   PencilLine,
+  Eye,
+  EyeOff,
 } from 'lucide-react';
 import {
   VaultState,
@@ -40,6 +42,7 @@ import {
   exportBackupJson,
   mergeVaultStates,
 } from './services/cloudSync';
+import { deriveVaultIdentity } from './services/cryptoVault';
 import { MascotDuoIllustration, MarshmallowStampBadge } from './components/QuokkaBoboArt';
 import { WaterTrackerCard } from './components/WaterTrackerCard';
 import { MealLoggerModal } from './components/MealLoggerModal';
@@ -83,6 +86,9 @@ export const App: React.FC = () => {
   const [vault, setVault] = useState<VaultState>(() => loadLocalVaultSync());
   const [passcode, setPasscode] = useState<string>(() => loadRememberedPasscodeSync());
   const [quickPassInput, setQuickPassInput] = useState<string>('');
+  const [showQuickPass, setShowQuickPass] = useState(false);
+  const [fingerprintBadge, setFingerprintBadge] = useState<string>('');
+  const [hasUnsyncedChanges, setHasUnsyncedChanges] = useState(false);
   const [booted, setBooted] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
   const [toastMsg, setToastMsg] = useState<string>('');
@@ -140,19 +146,33 @@ export const App: React.FC = () => {
       let latestMerged = mergeVaultStates(vaultRef.current, baseState);
       try {
         const outcome = await syncWithCloudVault(latestMerged, cleanPass, forcePush);
+        if (outcome.fingerprintBadge) {
+          setFingerprintBadge(outcome.fingerprintBadge);
+        }
+        if (outcome.matchedPasscode && outcome.matchedPasscode !== cleanPass) {
+          setPasscode(outcome.matchedPasscode);
+          passcodeRef.current = outcome.matchedPasscode;
+          void saveRememberedPasscode(outcome.matchedPasscode);
+        }
+        setVault((prev) => {
+          const safeMerged = mergeVaultStates(prev, outcome.mergedState);
+          latestMerged = safeMerged;
+          vaultRef.current = safeMerged;
+          void saveLocalVaultState(safeMerged);
+          return safeMerged;
+        });
         if (outcome.ok) {
-          setVault((prev) => {
-            const safeMerged = mergeVaultStates(prev, outcome.mergedState);
-            latestMerged = safeMerged;
-            vaultRef.current = safeMerged;
-            void saveLocalVaultState(safeMerged);
-            return safeMerged;
-          });
+          setHasUnsyncedChanges(false);
           if (showSuccessToast) {
-            showToast('☁️ Bobo 已幫妳同步最新雲端紀錄囉！');
+            showToast('☁️ Bobo 已幫妳同步最新雙雲端紀錄囉！');
           }
-        } else if (showSuccessToast && outcome.errorMessage) {
-          showToast(`⚠️ ${outcome.errorMessage}`);
+        } else {
+          if (forcePush) {
+            setHasUnsyncedChanges(true);
+          }
+          if (showSuccessToast && outcome.errorMessage) {
+            showToast(`⚠️ ${outcome.errorMessage}`);
+          }
         }
       } finally {
         syncInFlightRef.current = false;
@@ -205,22 +225,45 @@ export const App: React.FC = () => {
     };
   }, [triggerCloudSync]);
 
-  // Foreground wake-up auto sync (Safari <-> iPhone Home Screen App) + ntfy.sh realtime relay
+  // Keep Vault Fingerprint Badge updated whenever passcode changes
+  useEffect(() => {
+    const clean = passcode.trim();
+    if (!clean) {
+      setFingerprintBadge('');
+      return;
+    }
+    let active = true;
+    deriveVaultIdentity(clean)
+      .then((id) => {
+        if (active) setFingerprintBadge(id.fingerprintBadge);
+      })
+      .catch(() => {});
+    return () => {
+      active = false;
+    };
+  }, [passcode]);
+
+  // Foreground wake-up auto sync (Safari <-> iPhone Home Screen App) + online reconnect + ntfy.sh realtime relay
   useEffect(() => {
     if (!booted || !passcode.trim()) return;
 
     const handleWakeSync = () => {
       if (document.visibilityState === 'visible') {
-        void triggerCloudSync(vaultRef.current, passcodeRef.current, false, false);
+        void triggerCloudSync(vaultRef.current, passcodeRef.current, false, hasUnsyncedChanges);
       }
     };
 
     const onFocus = () => {
-      void triggerCloudSync(vaultRef.current, passcodeRef.current, false, false);
+      void triggerCloudSync(vaultRef.current, passcodeRef.current, false, hasUnsyncedChanges);
+    };
+
+    const onOnline = () => {
+      void triggerCloudSync(vaultRef.current, passcodeRef.current, false, true);
     };
 
     document.addEventListener('visibilitychange', handleWakeSync);
     window.addEventListener('focus', onFocus);
+    window.addEventListener('online', onOnline);
     const unsubRelay = subscribeRealtimeRelay(passcode, () => {
       void triggerCloudSync(vaultRef.current, passcodeRef.current, false, false);
     });
@@ -228,9 +271,19 @@ export const App: React.FC = () => {
     return () => {
       document.removeEventListener('visibilitychange', handleWakeSync);
       window.removeEventListener('focus', onFocus);
+      window.removeEventListener('online', onOnline);
       unsubRelay();
     };
-  }, [booted, passcode, triggerCloudSync]);
+  }, [booted, passcode, hasUnsyncedChanges, triggerCloudSync]);
+
+  // Automatic background retry when cloud push is pending
+  useEffect(() => {
+    if (!hasUnsyncedChanges || !passcode.trim()) return;
+    const timer = window.setInterval(() => {
+      void triggerCloudSync(vaultRef.current, passcodeRef.current, false, true);
+    }, 15000);
+    return () => clearInterval(timer);
+  }, [hasUnsyncedChanges, passcode, triggerCloudSync]);
 
   const commitVaultUpdate = useCallback(
     (updater: (prev: VaultState) => VaultState) => {
@@ -257,10 +310,15 @@ export const App: React.FC = () => {
       !vaultRef.current.isUneditedDefault
     );
     setSyncBusy(false);
-    if (outcome.ok) {
-      setPasscode(clean);
-      passcodeRef.current = clean;
-      await saveRememberedPasscode(clean);
+    const resolvedPass = outcome.matchedPasscode || clean;
+    if (outcome.fingerprintBadge) {
+      setFingerprintBadge(outcome.fingerprintBadge);
+    }
+    if (outcome.ok || outcome.pulledFromCloud) {
+      setPasscode(resolvedPass);
+      passcodeRef.current = resolvedPass;
+      await saveRememberedPasscode(resolvedPass);
+      setHasUnsyncedChanges(!outcome.ok);
       setVault((prev) => {
         const safeMerged = mergeVaultStates(prev, outcome.mergedState);
         vaultRef.current = safeMerged;
@@ -271,7 +329,7 @@ export const App: React.FC = () => {
       return {
         ok: true,
         msg: outcome.pulledFromCloud
-          ? '✅ 已成功拉取並合併雲端紀錄！'
+          ? `✅ 已成功拉取並合併雲端紀錄（共 ${outcome.mergedState.meals.length} 筆餐點）！`
           : '✅ 已建立專屬加密雲端空間並啟動同步！',
       };
     }
@@ -503,6 +561,7 @@ export const App: React.FC = () => {
               <h1 className="font-black text-base leading-tight text-[#2C241E]">BoboCalo</h1>
               <p className="text-[11px] text-[#6E6459]">
                 Marsh 棉花糖塔 × {vault.stamps.length}
+                {fingerprintBadge ? ` · ${fingerprintBadge}` : ''}
               </p>
             </div>
           </div>
@@ -522,7 +581,14 @@ export const App: React.FC = () => {
               title="立即與雲端對齊最新紀錄"
             >
               <RefreshCw className={`w-3.5 h-3.5 ${syncBusy ? 'animate-spin text-[#C83B32]' : ''}`} />
-              <span>雲端同步</span>
+              <span>{hasUnsyncedChanges ? '待同步' : '雲端同步'}</span>
+              {passcode.trim() && (
+                <span
+                  className={`w-2 h-2 rounded-full ${
+                    hasUnsyncedChanges ? 'bg-[#D9822B]' : 'bg-[#5A9E54]'
+                  }`}
+                />
+              )}
             </button>
 
             <button
@@ -549,17 +615,30 @@ export const App: React.FC = () => {
               <span>設定專屬通行碼：自動同步 Safari ↔ iPhone「加入主畫面」</span>
             </div>
             <div className="flex gap-2">
-              <input
-                type="password"
-                value={quickPassInput}
-                onChange={(e) => setQuickPassInput(e.target.value)}
-                placeholder="輸入自訂通行碼解鎖／建立雲端同步"
-                className="flex-1 px-3 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-xs"
-              />
+              <div className="relative flex-1">
+                <input
+                  type={showQuickPass ? 'text' : 'password'}
+                  autoCapitalize="none"
+                  autoCorrect="off"
+                  spellCheck={false}
+                  value={quickPassInput}
+                  onChange={(e) => setQuickPassInput(e.target.value)}
+                  placeholder="輸入自訂通行碼解鎖／建立雲端同步"
+                  className="w-full pl-3 pr-8 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-xs"
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowQuickPass((s) => !s)}
+                  className="absolute right-2 top-1.5 text-[#7C5841]"
+                  title={showQuickPass ? '隱藏通行碼' : '顯示通行碼'}
+                >
+                  {showQuickPass ? <EyeOff className="w-3.5 h-3.5" /> : <Eye className="w-3.5 h-3.5" />}
+                </button>
+              </div>
               <button
                 type="button"
                 onClick={() => void handleBindPasscode(quickPassInput)}
-                className="px-3.5 py-1.5 rounded-xl bg-[#BA7E4D] text-white text-xs font-bold doodle-btn"
+                className="px-3.5 py-1.5 rounded-xl bg-[#BA7E4D] text-white text-xs font-bold doodle-btn shrink-0"
               >
                 啟用同步
               </button>
@@ -972,6 +1051,8 @@ export const App: React.FC = () => {
           profile={vault.profile}
           geminiApiKey={vault.geminiApiKey}
           activePasscode={passcode}
+          fingerprintBadge={fingerprintBadge}
+          hasUnsyncedChanges={hasUnsyncedChanges}
           syncBusy={syncBusy}
           onUnlockOrChangePasscode={handleBindPasscode}
           onSaveProfileAndKey={handleSaveProfileAndKey}

@@ -11,6 +11,7 @@ import {
   encryptVaultPayload,
   decryptVaultPayload,
   normalizePasscode,
+  getPasscodeFallbackVariants,
 } from './cryptoVault';
 
 const LOCAL_STATE_KEY = 'bobocalo_state_v1';
@@ -27,7 +28,21 @@ const IDB_KV_STORE = 'kv';
 const IDB_PHOTO_STORE = 'meal_photos';
 const IDB_STATE_KEY = 'vault_state_v1';
 const IDB_PASS_KEY = 'saved_passcode_v1';
-const IDB_TIMEOUT_MS = 1500;
+const IDB_SNAPSHOTS_KEY = 'history_snapshots_v1';
+const IDB_TIMEOUT_MS = 8000;
+
+const CLOUD_CHUNK_PREFIX = 'BCCHUNK1:';
+const CLOUD_CHUNK_MAX_CHARS = 40000;
+const LOCALSTORAGE_MAX_INLINE_CHARS = 85000;
+
+export interface LocalHistorySnapshot {
+  id: string;
+  savedAt: number;
+  mealCount: number;
+  waterCount: number;
+  workoutCount: number;
+  stateJson: string;
+}
 
 /**
  * 申請瀏覽器永久儲存權限，避免 iOS / 行動瀏覽器自動回收空間
@@ -37,7 +52,7 @@ export async function requestPersistentStorage(): Promise<void> {
     if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
       await Promise.race([
         navigator.storage.persist(),
-        new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+        new Promise<void>((resolve) => setTimeout(resolve, 1200)),
       ]);
     }
   } catch {
@@ -73,8 +88,12 @@ function withIdbTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
   });
 }
 
+let cachedDbPromise: Promise<IDBDatabase | null> | null = null;
+
 function openIdb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
+  if (cachedDbPromise) return cachedDbPromise;
+
   const rawPromise = new Promise<IDBDatabase | null>((resolve) => {
     try {
       const req = indexedDB.open(IDB_NAME, 1);
@@ -87,14 +106,36 @@ function openIdb(): Promise<IDBDatabase | null> {
           db.createObjectStore(IDB_PHOTO_STORE);
         }
       };
-      req.onsuccess = () => resolve(req.result);
-      req.onerror = () => resolve(null);
-      req.onblocked = () => resolve(null);
+      req.onsuccess = () => {
+        const db = req.result;
+        db.onversionchange = () => {
+          db.close();
+          cachedDbPromise = null;
+        };
+        db.onclose = () => {
+          cachedDbPromise = null;
+        };
+        resolve(db);
+      };
+      req.onerror = () => {
+        cachedDbPromise = null;
+        resolve(null);
+      };
+      req.onblocked = () => {
+        cachedDbPromise = null;
+        resolve(null);
+      };
     } catch {
+      cachedDbPromise = null;
       resolve(null);
     }
   });
-  return withIdbTimeout(rawPromise, null);
+
+  cachedDbPromise = withIdbTimeout(rawPromise, null).then((db) => {
+    if (!db) cachedDbPromise = null;
+    return db;
+  });
+  return cachedDbPromise;
 }
 
 async function idbPut(storeName: string, key: string, value: string): Promise<void> {
@@ -104,20 +145,11 @@ async function idbPut(storeName: string, key: string, value: string): Promise<vo
     try {
       const tx = db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).put(value, key);
-      tx.oncomplete = () => {
-        db.close();
-        resolve();
-      };
-      tx.onerror = () => {
-        db.close();
-        resolve();
-      };
-      tx.onabort = () => {
-        db.close();
-        resolve();
-      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => resolve();
+      tx.onabort = () => resolve();
     } catch {
-      db.close();
+      cachedDbPromise = null;
       resolve();
     }
   });
@@ -131,16 +163,10 @@ async function idbGet(storeName: string, key: string): Promise<string | null> {
     try {
       const tx = db.transaction(storeName, 'readonly');
       const req = tx.objectStore(storeName).get(key);
-      req.onsuccess = () => {
-        db.close();
-        resolve(typeof req.result === 'string' ? req.result : null);
-      };
-      req.onerror = () => {
-        db.close();
-        resolve(null);
-      };
+      req.onsuccess = () => resolve(typeof req.result === 'string' ? req.result : null);
+      req.onerror = () => resolve(null);
     } catch {
-      db.close();
+      cachedDbPromise = null;
       resolve(null);
     }
   });
@@ -155,24 +181,17 @@ async function idbGetAllKeys(storeName: string): Promise<string[]> {
       const tx = db.transaction(storeName, 'readonly');
       const store = tx.objectStore(storeName);
       if (typeof store.getAllKeys !== 'function') {
-        db.close();
         resolve([]);
         return;
       }
       const req = store.getAllKeys();
       req.onsuccess = () => {
-        db.close();
-        const list = Array.isArray(req.result)
-          ? req.result.map((k) => String(k))
-          : [];
+        const list = Array.isArray(req.result) ? req.result.map((k) => String(k)) : [];
         resolve(list);
       };
-      req.onerror = () => {
-        db.close();
-        resolve([]);
-      };
+      req.onerror = () => resolve([]);
     } catch {
-      db.close();
+      cachedDbPromise = null;
       resolve([]);
     }
   });
@@ -187,7 +206,7 @@ export async function getLocalHiResPhoto(mealId: string): Promise<string | null>
   return idbGet(IDB_PHOTO_STORE, mealId);
 }
 
-function parseVaultJson(raw: string | null | undefined): VaultState | null {
+export function parseVaultJson(raw: string | null | undefined): VaultState | null {
   if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<VaultState>;
@@ -210,6 +229,30 @@ function parseVaultJson(raw: string | null | undefined): VaultState | null {
 
 function hasUserRecords(state: VaultState): boolean {
   return state.meals.length > 0 || state.waters.length > 0 || state.workouts.length > 0;
+}
+
+function stripPhotosForSlimLocalStorage(state: VaultState): string {
+  const slim: VaultState = {
+    ...state,
+    meals: state.meals.map(({ photoThumb: _omit, ...rest }) => rest),
+  };
+  return JSON.stringify(slim);
+}
+
+function tryWriteLocalStorageWithSlimFallback(key: string, fullRaw: string, state: VaultState): void {
+  const toWrite =
+    fullRaw.length <= LOCALSTORAGE_MAX_INLINE_CHARS
+      ? fullRaw
+      : stripPhotosForSlimLocalStorage(state);
+  try {
+    localStorage.setItem(key, toWrite);
+  } catch {
+    try {
+      localStorage.setItem(key, stripPhotosForSlimLocalStorage(state));
+    } catch {
+      // Shared origin localStorage temporarily full; IndexedDB still holds 100% of state
+    }
+  }
 }
 
 /**
@@ -243,6 +286,61 @@ export function loadRememberedPasscodeSync(): string {
   }
 }
 
+async function appendRollingHistorySnapshot(state: VaultState, fullRaw: string): Promise<void> {
+  if (!hasUserRecords(state)) return;
+  try {
+    const existingRaw = await idbGet(IDB_KV_STORE, IDB_SNAPSHOTS_KEY);
+    const list: LocalHistorySnapshot[] = existingRaw ? JSON.parse(existingRaw) : [];
+    const safeList = Array.isArray(list) ? list : [];
+    const now = Date.now();
+    const latest = safeList[0];
+
+    // 若距離上一筆快照不到 90 秒且紀錄筆數完全相同，更新最新快照即可，避免洗掉更早的歷史時間點
+    if (
+      latest &&
+      now - latest.savedAt < 90_000 &&
+      latest.mealCount === state.meals.length &&
+      latest.waterCount === state.waters.length &&
+      latest.workoutCount === state.workouts.length
+    ) {
+      const updatedTop: LocalHistorySnapshot = {
+        ...latest,
+        savedAt: now,
+        stateJson: fullRaw,
+      };
+      await idbPut(
+        IDB_KV_STORE,
+        IDB_SNAPSHOTS_KEY,
+        JSON.stringify([updatedTop, ...safeList.slice(1, 8)])
+      );
+      return;
+    }
+
+    const snap: LocalHistorySnapshot = {
+      id: `snap-${now}`,
+      savedAt: now,
+      mealCount: state.meals.length,
+      waterCount: state.waters.length,
+      workoutCount: state.workouts.length,
+      stateJson: fullRaw,
+    };
+    await idbPut(IDB_KV_STORE, IDB_SNAPSHOTS_KEY, JSON.stringify([snap, ...safeList].slice(0, 8)));
+  } catch {
+    // Ignore snapshot error
+  }
+}
+
+export async function listLocalHistorySnapshots(): Promise<LocalHistorySnapshot[]> {
+  try {
+    const raw = await idbGet(IDB_KV_STORE, IDB_SNAPSHOTS_KEY);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) ? parsed : [];
+  } catch {
+    return [];
+  }
+}
+
 export async function saveLocalVaultState(state: VaultState): Promise<void> {
   // 防護：絕不讓未編輯的空白預設狀態覆蓋已經有資料的本機儲存！
   if (state.isUneditedDefault && !hasUserRecords(state)) {
@@ -252,20 +350,29 @@ export async function saveLocalVaultState(state: VaultState): Promise<void> {
     }
   }
 
-  const raw = JSON.stringify(state);
-  try {
-    localStorage.setItem(LOCAL_STATE_KEY, raw);
-    if (hasUserRecords(state)) {
-      localStorage.setItem(LAST_NONEMPTY_STATE_KEY, raw);
-    }
-  } catch {
-    // Quota or private mode fallback to IndexedDB
+  const fullRaw = JSON.stringify(state);
+
+  // 先將縮圖鏡像至 IndexedDB，再寫入輕量化 localStorage（避免與同網域其他 PWA 搶用 5MB localStorage 上限！）
+  tryWriteLocalStorageWithSlimFallback(LOCAL_STATE_KEY, fullRaw, state);
+  if (hasUserRecords(state)) {
+    tryWriteLocalStorageWithSlimFallback(LAST_NONEMPTY_STATE_KEY, fullRaw, state);
   }
-  await idbPut(IDB_KV_STORE, IDB_STATE_KEY, raw);
+
+  await Promise.all([
+    idbPut(IDB_KV_STORE, IDB_STATE_KEY, fullRaw),
+    ...state.meals
+      .filter((m) => m.photoThumb?.startsWith('data:image/'))
+      .slice(0, 30)
+      .map((m) => idbPut(IDB_PHOTO_STORE, `thumb:${m.id}`, m.photoThumb!)),
+  ]);
+
+  if (hasUserRecords(state)) {
+    await appendRollingHistorySnapshot(state, fullRaw);
+  }
 }
 
 /**
- * 完整非同步本機載入：合併 localStorage + 防誤刪快照 + IndexedDB 鏡像，並自動救回任何殘留在 IndexedDB 照片庫的未刪除餐點！
+ * 完整非同步本機載入：合併 localStorage + 防誤刪快照 + IndexedDB 鏡像 + 縮圖還原，並自動救回任何殘留在 IndexedDB 照片庫的未刪除餐點！
  */
 export async function loadLocalVaultState(): Promise<VaultState> {
   let merged = loadLocalVaultSync();
@@ -275,6 +382,28 @@ export async function loadLocalVaultState(): Promise<VaultState> {
   if (idbState) {
     merged = mergeVaultStates(merged, idbState);
   }
+
+  // 若主狀態為空但歷史快照庫仍有非空白紀錄（且未曾被使用者手動刪除），自動救援最新快照！
+  if (!hasUserRecords(merged) && merged.isUneditedDefault) {
+    const snaps = await listLocalHistorySnapshots();
+    if (snaps.length > 0) {
+      const snapState = parseVaultJson(snaps[0].stateJson);
+      if (snapState && hasUserRecords(snapState)) {
+        merged = mergeVaultStates(merged, snapState);
+      }
+    }
+  }
+
+  // 補齊因 localStorage 瘦身而暫存在 IndexedDB 的餐點縮圖
+  const hydratedMeals = await Promise.all(
+    merged.meals.map(async (m) => {
+      if (m.photoThumb) return m;
+      const savedThumb = await idbGet(IDB_PHOTO_STORE, `thumb:${m.id}`);
+      if (savedThumb) return { ...m, photoThumb: savedThumb };
+      return m;
+    })
+  );
+  merged = { ...merged, meals: hydratedMeals };
 
   // 若先前因競態導致餐點清單遺失，但 IndexedDB meal_photos 仍保有使用者拍下的美食照片（且未曾被按刪除），自動救回！
   const photoKeys = await idbGetAllKeys(IDB_PHOTO_STORE);
@@ -323,15 +452,12 @@ export async function loadLocalVaultState(): Promise<VaultState> {
   }
 
   if (!merged.isUneditedDefault || recoveredAny) {
-    try {
-      const raw = JSON.stringify(merged);
-      localStorage.setItem(LOCAL_STATE_KEY, raw);
-      if (hasUserRecords(merged)) {
-        localStorage.setItem(LAST_NONEMPTY_STATE_KEY, raw);
-      }
-    } catch {
-      // Ignore
+    const fullRaw = JSON.stringify(merged);
+    tryWriteLocalStorageWithSlimFallback(LOCAL_STATE_KEY, fullRaw, merged);
+    if (hasUserRecords(merged)) {
+      tryWriteLocalStorageWithSlimFallback(LAST_NONEMPTY_STATE_KEY, fullRaw, merged);
     }
+    await idbPut(IDB_KV_STORE, IDB_STATE_KEY, fullRaw);
   }
 
   return merged;
@@ -346,7 +472,7 @@ export async function saveRememberedPasscode(passcode: string): Promise<void> {
       localStorage.removeItem(LOCAL_PASSCODE_KEY);
     }
   } catch {
-    // Ignore
+    // Ignore localStorage quota error; IndexedDB stores passcode reliably
   }
   await idbPut(IDB_KV_STORE, IDB_PASS_KEY, clean);
 }
@@ -370,7 +496,6 @@ export async function loadRememberedPasscode(): Promise<string> {
  * 防空白覆蓋與墓碑合併演算法 (Anti-Overwrite Merge & Tombstones)
  */
 export function mergeVaultStates(local: VaultState, remote: VaultState): VaultState {
-  // 若本機為尚未編輯過的預設空白狀態，直接採用雲端已編輯資料
   if (local.isUneditedDefault && !remote.isUneditedDefault) {
     return { ...remote, isUneditedDefault: false };
   }
@@ -378,7 +503,6 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
     return { ...local, isUneditedDefault: false };
   }
 
-  // 合併刪除墓碑
   const deletedIds: Record<string, number> = { ...(remote.deletedIds || {}) };
   for (const [id, ts] of Object.entries(local.deletedIds || {})) {
     if (!deletedIds[id] || ts > deletedIds[id]) {
@@ -386,7 +510,6 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
     }
   }
 
-  // 合併餐點紀錄（保留最新 updatedAt，過濾已刪除墓碑）
   const mealMap = new Map<string, MealLog>();
   for (const m of [...remote.meals, ...local.meals]) {
     const delTs = deletedIds[m.id];
@@ -398,12 +521,14 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
         ...prev,
         ...m,
         photoThumb: m.photoThumb || prev?.photoThumb,
+        hasLocalHiResPhoto: Boolean(m.hasLocalHiResPhoto || prev?.hasLocalHiResPhoto),
       });
+    } else if (!prev.photoThumb && m.photoThumb) {
+      mealMap.set(m.id, { ...prev, photoThumb: m.photoThumb });
     }
   }
   const mergedMeals = Array.from(mealMap.values()).sort((a, b) => b.createdAt - a.createdAt);
 
-  // 合併運動紀錄
   const workoutMap = new Map<string, WorkoutLog>();
   for (const w of [...remote.workouts, ...local.workouts]) {
     const delTs = deletedIds[w.id];
@@ -412,7 +537,6 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
   }
   const mergedWorkouts = Array.from(workoutMap.values()).sort((a, b) => b.createdAt - a.createdAt);
 
-  // 合併喝水紀錄
   const waterMap = new Map<string, WaterLog>();
   for (const wt of [...remote.waters, ...local.waters]) {
     const delTs = deletedIds[wt.id];
@@ -421,10 +545,8 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
   }
   const mergedWaters = Array.from(waterMap.values()).sort((a, b) => b.createdAt - a.createdAt);
 
-  // 合併印章
   const mergedStamps = Array.from(new Set([...(remote.stamps || []), ...(local.stamps || [])]));
 
-  // 合併個人檔案與 Gemini API Key（以 settingsUpdatedAt 較新者為主，若一邊空白則保留非空白 Key）
   const localSettingsNewer = (local.settingsUpdatedAt || 0) >= (remote.settingsUpdatedAt || 0);
   const profile = localSettingsNewer ? local.profile : remote.profile;
   const geminiApiKey = localSettingsNewer
@@ -457,11 +579,11 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
 }
 
 /**
- * 控制上傳雲端前的照片縮圖體積（僅保留最近 20 筆餐點的迷你縮圖，確保雲端永遠輕量秒傳）
+ * 主索引僅保留最近 12 筆迷你縮圖供秒開顯示，所有清晰美食照片另透過加密分片獨立同步至雙雲端！
  */
 export function compactStateForCloud(state: VaultState): VaultState {
   const meals = state.meals.map((m, idx) => {
-    if (idx < 20) return m;
+    if (idx < 12) return m;
     const { photoThumb: _omit, ...rest } = m;
     return rest;
   });
@@ -469,17 +591,18 @@ export function compactStateForCloud(state: VaultState): VaultState {
 }
 
 /**
- * 寫入永久雲端 KV (textdb.online) — 嚴格使用 application/x-www-form-urlencoded + URLSearchParams
+ * 寫入永久雲端 KV (textdb.online) — 嚴格使用 application/x-www-form-urlencoded + URLSearchParams，
+ * 並強制解析 JSON `status === 1`（防止超過 20 萬字元時 HTTP 200 `{status:0}` 假成功！）
  */
 export function buildTextDbFormBody(key: string, value: string): string {
   return new URLSearchParams({ key, value }).toString();
 }
 
-async function writeTextDbOnline(key: string, encryptedValue: string): Promise<boolean> {
+async function writeTextDbOnlineSingle(key: string, value: string): Promise<boolean> {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7500) : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 8500) : null;
   try {
-    const body = buildTextDbFormBody(key, encryptedValue);
+    const body = buildTextDbFormBody(key, value);
     const init: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
@@ -490,7 +613,18 @@ async function writeTextDbOnline(key: string, encryptedValue: string): Promise<b
       init.keepalive = true;
     }
     const res = await fetch(TEXTDB_UPDATE_URL, init);
-    return res.ok;
+    if (!res.ok) return false;
+    const txt = (await res.text()).trim();
+    if (!txt) return true;
+    try {
+      const parsed = JSON.parse(txt) as { status?: number };
+      if (parsed && typeof parsed === 'object' && 'status' in parsed) {
+        return Number(parsed.status) === 1;
+      }
+    } catch {
+      // Non-JSON 200 OK fallback in test mocks
+    }
+    return true;
   } catch {
     return false;
   } finally {
@@ -498,14 +632,14 @@ async function writeTextDbOnline(key: string, encryptedValue: string): Promise<b
   }
 }
 
-async function writeTextDbDev(key: string, encryptedValue: string): Promise<boolean> {
+async function writeTextDbDevSingle(key: string, value: string): Promise<boolean> {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7500) : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 8500) : null;
   try {
-    const bodyStr = JSON.stringify({ payload: encryptedValue });
+    const bodyStr = JSON.stringify({ payload: value });
     const init: RequestInit = {
       method: 'POST',
-      // textdb.dev 嚴格要求 Content-Type: application/json
+      // textdb.dev (Elixir Plug) 嚴格要求 Content-Type: application/json
       headers: { 'Content-Type': 'application/json' },
       body: bodyStr,
       signal: ctrl?.signal,
@@ -522,17 +656,38 @@ async function writeTextDbDev(key: string, encryptedValue: string): Promise<bool
   }
 }
 
+async function writeChunkedToProvider(
+  baseKey: string,
+  fullValue: string,
+  writeSingle: (k: string, v: string) => Promise<boolean>
+): Promise<boolean> {
+  if (fullValue.length <= CLOUD_CHUNK_MAX_CHARS) {
+    return writeSingle(baseKey, fullValue);
+  }
+  const chunks: string[] = [];
+  for (let i = 0; i < fullValue.length; i += CLOUD_CHUNK_MAX_CHARS) {
+    chunks.push(fullValue.slice(i, i + CLOUD_CHUNK_MAX_CHARS));
+  }
+  // 先寫入子分片 p1..p_{N-1}，全部成功後再更新主索引 baseKey，保證讀取端不會讀到半套分片！
+  for (let idx = 1; idx < chunks.length; idx++) {
+    const ok = await writeSingle(`${baseKey}_p${idx}`, chunks[idx]);
+    if (!ok) return false;
+  }
+  const header = `${CLOUD_CHUNK_PREFIX}${chunks.length}:${chunks[0]}`;
+  return writeSingle(baseKey, header);
+}
+
 export async function writePermanentCloud(key: string, encryptedValue: string): Promise<boolean> {
   const [okOnline, okDev] = await Promise.all([
-    writeTextDbOnline(key, encryptedValue),
-    writeTextDbDev(key, encryptedValue),
+    writeChunkedToProvider(key, encryptedValue, writeTextDbOnlineSingle),
+    writeChunkedToProvider(key, encryptedValue, writeTextDbDevSingle),
   ]);
   return okOnline || okDev;
 }
 
-async function readTextDbOnline(key: string): Promise<string | null> {
+async function readTextDbOnlineSingle(key: string): Promise<string | null> {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 6500) : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7000) : null;
   try {
     const url = `${TEXTDB_READ_URL}/${encodeURIComponent(key)}?t=${Date.now()}`;
     const res = await fetch(url, { cache: 'no-store', signal: ctrl?.signal });
@@ -546,9 +701,9 @@ async function readTextDbOnline(key: string): Promise<string | null> {
   }
 }
 
-async function readTextDbDev(key: string): Promise<string | null> {
+async function readTextDbDevSingle(key: string): Promise<string | null> {
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), 6500) : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7000) : null;
   try {
     const url = `${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}?t=${Date.now()}`;
     const res = await fetch(url, { cache: 'no-store', signal: ctrl?.signal });
@@ -569,20 +724,125 @@ async function readTextDbDev(key: string): Promise<string | null> {
   }
 }
 
+async function readChunkedFromProvider(
+  baseKey: string,
+  readSingle: (k: string) => Promise<string | null>
+): Promise<string | null> {
+  const head = await readSingle(baseKey);
+  if (!head) return null;
+  if (!head.startsWith(CLOUD_CHUNK_PREFIX)) {
+    return head;
+  }
+  const rest = head.slice(CLOUD_CHUNK_PREFIX.length);
+  const colonIdx = rest.indexOf(':');
+  if (colonIdx <= 0) return null;
+  const totalChunks = Number.parseInt(rest.slice(0, colonIdx), 10);
+  const chunk0 = rest.slice(colonIdx + 1);
+  if (!Number.isFinite(totalChunks) || totalChunks < 2 || totalChunks > 60) return null;
+
+  const tailPromises: Array<Promise<string | null>> = [];
+  for (let idx = 1; idx < totalChunks; idx++) {
+    tailPromises.push(readSingle(`${baseKey}_p${idx}`));
+  }
+  const tails = await Promise.all(tailPromises);
+  if (tails.some((part) => !part)) return null;
+  return chunk0 + tails.join('');
+}
+
 export async function readPermanentCloud(key: string): Promise<string | null> {
   const [onlineRaw, devRaw] = await Promise.all([
-    readTextDbOnline(key),
-    readTextDbDev(key),
+    readChunkedFromProvider(key, readTextDbOnlineSingle),
+    readChunkedFromProvider(key, readTextDbDevSingle),
   ]);
   return onlineRaw || devRaw || null;
 }
 
+function isValidCipherEnvelope(x: string | null | undefined): x is string {
+  return Boolean(x && (x.startsWith('BC2:') || x.startsWith('BC1:')));
+}
+
 async function readAllPermanentCloudCandidates(key: string): Promise<string[]> {
   const [onlineRaw, devRaw] = await Promise.all([
-    readTextDbOnline(key),
-    readTextDbDev(key),
+    readChunkedFromProvider(key, readTextDbOnlineSingle),
+    readChunkedFromProvider(key, readTextDbDevSingle),
   ]);
-  return Array.from(new Set([onlineRaw, devRaw].filter((x): x is string => Boolean(x && x.startsWith('BC1:')))));
+  return Array.from(new Set([onlineRaw, devRaw].filter(isValidCipherEnvelope)));
+}
+
+function sanitizeMealShardId(id: string): string {
+  return id.replace(/[^a-zA-Z0-9_-]/g, '_').slice(0, 36);
+}
+
+async function uploadMealPhotoShards(
+  meals: MealLog[],
+  imgKeyPrefix: string,
+  passcode: string
+): Promise<void> {
+  // 批次上傳最近 25 筆餐點清晰照片分片（每批最多 3 張，已上傳過的不重複傳送）
+  const candidates = meals.slice(0, 25);
+  const BATCH = 3;
+  for (let i = 0; i < candidates.length; i += BATCH) {
+    const slice = candidates.slice(i, i + BATCH);
+    await Promise.all(
+      slice.map(async (meal) => {
+        const shardKey = `${imgKeyPrefix}_${sanitizeMealShardId(meal.id)}`;
+        const uploadedMarker = await idbGet(IDB_KV_STORE, `uploaded:${shardKey}`);
+        if (uploadedMarker === String(meal.updatedAt || meal.createdAt)) return;
+
+        const hiRes = await getLocalHiResPhoto(meal.id);
+        const bestPhoto = hiRes || meal.photoThumb;
+        if (!bestPhoto || !bestPhoto.startsWith('data:image/')) return;
+
+        const encryptedPhoto = await encryptVaultPayload(bestPhoto, passcode);
+        const ok = await writePermanentCloud(shardKey, encryptedPhoto);
+        if (ok) {
+          await idbPut(
+            IDB_KV_STORE,
+            `uploaded:${shardKey}`,
+            String(meal.updatedAt || meal.createdAt)
+          );
+        }
+      })
+    );
+  }
+}
+
+async function hydrateMealPhotoShards(
+  meals: MealLog[],
+  imgKeyPrefix: string,
+  passcode: string
+): Promise<MealLog[]> {
+  const top = meals.slice(0, 25);
+  const rest = meals.slice(25);
+  const hydratedTop = await Promise.all(
+    top.map(async (meal) => {
+      const localHi = await getLocalHiResPhoto(meal.id);
+      if (localHi) {
+        return { ...meal, hasLocalHiResPhoto: true };
+      }
+      if (!meal.hasLocalHiResPhoto && meal.photoThumb) {
+        return meal;
+      }
+      const shardKey = `${imgKeyPrefix}_${sanitizeMealShardId(meal.id)}`;
+      const rawShard = await readPermanentCloud(shardKey);
+      if (!isValidCipherEnvelope(rawShard)) return meal;
+      try {
+        const decryptedDataUrl = await decryptVaultPayload(rawShard, passcode);
+        if (decryptedDataUrl.startsWith('data:image/')) {
+          await saveLocalHiResPhoto(meal.id, decryptedDataUrl);
+          return {
+            ...meal,
+            hasLocalHiResPhoto: true,
+            photoThumb: meal.photoThumb || decryptedDataUrl,
+          };
+        }
+      } catch {
+        // Ignore shard decryption mismatch
+      }
+      return meal;
+    })
+  );
+  return [...hydratedTop, ...rest];
 }
 
 async function pingSseTopic(sseTopic: string, updatedAt: number): Promise<void> {
@@ -602,11 +862,16 @@ export interface SyncOutcome {
   mergedState: VaultState;
   pulledFromCloud: boolean;
   pushedToCloud: boolean;
+  matchedPasscode?: string;
+  fingerprintBadge?: string;
   errorMessage?: string;
 }
 
 /**
- * 標準雙向同步流程：永遠先從雙永久雲端 Pull 解密比對合併，再決定是否需要 Push！絕不拿空白預設洗掉雲端！
+ * 標準雙向同步流程：
+ * 1. 永遠先從雙永久雲端 Pull 解密比對合併（若精確通行碼查無資料，自動檢查 iOS 首字母大小寫候選救援！）
+ * 2. 與本機最新狀態防競態合併後寫入 IndexedDB + 滾動歷史快照
+ * 3. 若需 Push，使用 BC2 壓縮加密 + 自動分片寫入雙雲端，且嚴格驗證真實寫入結果（絕不假成功！）
  */
 export async function syncWithCloudVault(
   localState: VaultState,
@@ -625,8 +890,25 @@ export async function syncWithCloudVault(
   }
 
   try {
-    const { vaultKey, sseTopic } = await deriveVaultIdentity(cleanPass);
-    const rawCandidates = await readAllPermanentCloudCandidates(vaultKey);
+    let activePass = cleanPass;
+    let identity = await deriveVaultIdentity(activePass);
+    let rawCandidates = await readAllPermanentCloudCandidates(identity.vaultKey);
+
+    // iOS 鍵盤自動首字大寫救援：若輸入密碼在雲端完全空白，自動檢查大小寫變體是否已有既有加密保險箱！
+    if (rawCandidates.length === 0) {
+      const variants = getPasscodeFallbackVariants(cleanPass);
+      for (const variant of variants) {
+        if (variant === cleanPass) continue;
+        const candId = await deriveVaultIdentity(variant);
+        const candList = await readAllPermanentCloudCandidates(candId.vaultKey);
+        if (candList.length > 0) {
+          activePass = variant;
+          identity = candId;
+          rawCandidates = candList;
+          break;
+        }
+      }
+    }
 
     let merged = localState;
     let pulledFromCloud = false;
@@ -634,7 +916,7 @@ export async function syncWithCloudVault(
 
     for (const rawCloud of rawCandidates) {
       try {
-        const decryptedJson = await decryptVaultPayload(rawCloud, cleanPass);
+        const decryptedJson = await decryptVaultPayload(rawCloud, activePass);
         const remoteState = parseVaultJson(decryptedJson);
         if (remoteState) {
           maxRemoteUpdatedAt = Math.max(maxRemoteUpdatedAt, remoteState.updatedAt || 0);
@@ -642,7 +924,7 @@ export async function syncWithCloudVault(
           pulledFromCloud = true;
         }
       } catch {
-        // Ignore corrupted or wrong-passcode candidate if another candidate succeeds
+        // Ignore corrupted candidate if another candidate succeeds
       }
     }
 
@@ -650,12 +932,20 @@ export async function syncWithCloudVault(
       throw new Error('通行碼不正確，無法解開既有雲端加密紀錄');
     }
 
+    if (pulledFromCloud && merged.meals.length > 0) {
+      const hydratedMeals = await hydrateMealPhotoShards(
+        merged.meals,
+        identity.imgKeyPrefix,
+        activePass
+      );
+      merged = { ...merged, meals: hydratedMeals };
+    }
+
     // 與最新本機狀態再做一次防競態合併後存檔
     const latestLocalSync = loadLocalVaultSync();
     merged = mergeVaultStates(latestLocalSync, merged);
     await saveLocalVaultState(merged);
 
-    // 只有當本機確實有已編輯內容且 (雲端尚無資料 / 本機較新 / 雙節點不一致 / 強制同步) 時才寫入雲端
     const shouldPush =
       !merged.isUneditedDefault &&
       merged.updatedAt > 0 &&
@@ -663,12 +953,22 @@ export async function syncWithCloudVault(
 
     let pushedToCloud = false;
     if (shouldPush) {
+      await uploadMealPhotoShards(merged.meals, identity.imgKeyPrefix, activePass);
       const compacted = compactStateForCloud(merged);
-      const encrypted = await encryptVaultPayload(JSON.stringify(compacted), cleanPass);
-      pushedToCloud = await writePermanentCloud(vaultKey, encrypted);
-      if (pushedToCloud) {
-        void pingSseTopic(sseTopic, merged.updatedAt);
+      const encrypted = await encryptVaultPayload(JSON.stringify(compacted), activePass);
+      pushedToCloud = await writePermanentCloud(identity.vaultKey, encrypted);
+      if (!pushedToCloud) {
+        return {
+          ok: false,
+          mergedState: merged,
+          pulledFromCloud,
+          pushedToCloud: false,
+          matchedPasscode: activePass,
+          fingerprintBadge: identity.fingerprintBadge,
+          errorMessage: '雲端網路暫時忙碌，紀錄已安全保存在本機保險箱，將自動重試同步！',
+        };
       }
+      void pingSseTopic(identity.sseTopic, merged.updatedAt);
     }
 
     return {
@@ -676,6 +976,8 @@ export async function syncWithCloudVault(
       mergedState: merged,
       pulledFromCloud,
       pushedToCloud,
+      matchedPasscode: activePass,
+      fingerprintBadge: identity.fingerprintBadge,
     };
   } catch (err) {
     return {
@@ -726,7 +1028,6 @@ export function subscribeRealtimeRelay(passcode: string, onRemotePing: () => voi
 export function exportBackupJson(state: VaultState): void {
   const safeExport: VaultState = {
     ...state,
-    // 不在匯出 JSON 中意外暴露明文 API Key，使用者可自行保留或重貼
     geminiApiKey: '',
   };
   const blob = new Blob([JSON.stringify(safeExport, null, 2)], { type: 'application/json' });

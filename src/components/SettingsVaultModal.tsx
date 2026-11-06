@@ -12,6 +12,7 @@ import {
   EyeOff,
   Loader2,
   Cloud,
+  History,
 } from 'lucide-react';
 import {
   UserProfile,
@@ -23,11 +24,18 @@ import {
   calculateDailyCalorieBudget,
 } from '../types/tracker';
 import { testGeminiApiKey } from '../services/geminiService';
+import {
+  listLocalHistorySnapshots,
+  LocalHistorySnapshot,
+  parseVaultJson,
+} from '../services/cloudSync';
 
 interface Props {
   profile: UserProfile;
   geminiApiKey: string;
   activePasscode: string;
+  fingerprintBadge?: string;
+  hasUnsyncedChanges?: boolean;
   syncBusy: boolean;
   onUnlockOrChangePasscode: (newPasscode: string) => Promise<{ ok: boolean; msg: string }>;
   onSaveProfileAndKey: (nextProfile: UserProfile, nextApiKey: string) => void;
@@ -56,6 +64,8 @@ export const SettingsVaultModal: React.FC<Props> = ({
   profile,
   geminiApiKey,
   activePasscode,
+  fingerprintBadge,
+  hasUnsyncedChanges,
   syncBusy,
   onUnlockOrChangePasscode,
   onSaveProfileAndKey,
@@ -64,7 +74,10 @@ export const SettingsVaultModal: React.FC<Props> = ({
   onClose,
 }) => {
   const [passInput, setPassInput] = useState(activePasscode);
+  const [showPasscode, setShowPasscode] = useState(false);
   const [passFeedback, setPassFeedback] = useState('');
+  const [snapshots, setSnapshots] = useState<LocalHistorySnapshot[]>([]);
+  const [snapshotFeedback, setSnapshotFeedback] = useState('');
 
   const [draftProfile, setDraftProfile] = useState<UserProfile>({ ...profile });
   const [ageInput, setAgeInput] = useState(() => String(profile.age));
@@ -94,6 +107,20 @@ export const SettingsVaultModal: React.FC<Props> = ({
   useEffect(() => {
     if (geminiApiKey) setDraftKey(geminiApiKey);
   }, [geminiApiKey]);
+
+  useEffect(() => {
+    setPassInput(activePasscode);
+  }, [activePasscode]);
+
+  useEffect(() => {
+    let active = true;
+    listLocalHistorySnapshots().then((list) => {
+      if (active) setSnapshots(list);
+    });
+    return () => {
+      active = false;
+    };
+  }, []);
 
   const parsedAge = Number.parseInt(ageInput, 10);
   const parsedHeight = Number.parseFloat(heightInput);
@@ -195,21 +222,41 @@ export const SettingsVaultModal: React.FC<Props> = ({
 
         {/* 1. Cloud Sync Passcode */}
         <div className="p-4 rounded-2xl bg-[#FAF4EB] border border-[#E5CFB3] space-y-2.5">
-          <div className="flex items-center gap-2 font-black text-sm text-[#422B1D]">
-            <Lock className="w-4 h-4 text-[#BA7E4D]" />
-            <span>Safari ↔ iPhone「加入主畫面」加密同步通行碼</span>
+          <div className="flex items-center justify-between gap-2 flex-wrap">
+            <div className="flex items-center gap-2 font-black text-sm text-[#422B1D]">
+              <Lock className="w-4 h-4 text-[#BA7E4D]" />
+              <span>Safari ↔ iPhone「加入主畫面」加密同步通行碼</span>
+            </div>
+            {fingerprintBadge && (
+              <span className="px-2.5 py-0.5 rounded-full bg-white border border-[#DFC8AC] text-[11px] font-black text-[#5C3F2D]">
+                雲端印記 {fingerprintBadge}
+              </span>
+            )}
           </div>
           <p className="text-xs text-[#7C5841] leading-relaxed">
-            在 Safari 與主畫面 App 輸入<strong>同一組自訂通行碼</strong>，就能透過前端 AES-GCM 加密自動同步所有飲食、喝水紀錄與 API Key！
+            在 Safari 與主畫面 App 輸入<strong>同一組自訂通行碼</strong>（核對右上角<strong>雲端印記</strong>相同即代表兩邊已連上同一個加密保險箱！），所有飲食、清晰照片、喝水與 API Key 都會雙雲端永久同步！
           </p>
           <div className="flex gap-2">
-            <input
-              type="password"
-              value={passInput}
-              onChange={(e) => setPassInput(e.target.value)}
-              placeholder="輸入妳自訂的專屬通行碼"
-              className="flex-1 px-3 py-2 rounded-xl border border-[#DFC8AC] bg-white text-sm"
-            />
+            <div className="relative flex-1">
+              <input
+                type={showPasscode ? 'text' : 'password'}
+                autoCapitalize="none"
+                autoCorrect="off"
+                spellCheck={false}
+                value={passInput}
+                onChange={(e) => setPassInput(e.target.value)}
+                placeholder="輸入妳自訂的專屬通行碼"
+                className="w-full pl-3 pr-9 py-2 rounded-xl border border-[#DFC8AC] bg-white text-sm"
+              />
+              <button
+                type="button"
+                onClick={() => setShowPasscode((s) => !s)}
+                className="absolute right-2.5 top-2.5 text-[#7C5841]"
+                title={showPasscode ? '隱藏通行碼' : '顯示通行碼確認無大小寫誤差'}
+              >
+                {showPasscode ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
             <button
               type="button"
               disabled={syncBusy}
@@ -220,6 +267,11 @@ export const SettingsVaultModal: React.FC<Props> = ({
               綁定／同步
             </button>
           </div>
+          {hasUnsyncedChanges && (
+            <p className="text-[11px] font-bold text-[#9A5B13]">
+              🟠 尚有最新紀錄排隊上傳雲端中（已安全保存在本機保險箱，網路恢復即自動對齊）
+            </p>
+          )}
           {passFeedback && <p className="text-xs font-bold text-[#355E30]">{passFeedback}</p>}
         </div>
 
@@ -429,7 +481,54 @@ export const SettingsVaultModal: React.FC<Props> = ({
           </div>
         </div>
 
-        {/* 4. Backup & Restore */}
+        {/* 4. Rolling Local History Snapshots Rescue */}
+        {snapshots.length > 0 && (
+          <div className="p-3.5 rounded-2xl bg-[#FAF4EB] border border-[#E5CFB3] space-y-2">
+            <div className="flex items-center gap-1.5 text-xs font-black text-[#422B1D]">
+              <History className="w-3.5 h-3.5 text-[#BA7E4D]" />
+              <span>🛟 本機自動防誤刪歷史快照救援（僅合併補回、不覆蓋新資料）</span>
+            </div>
+            <div className="space-y-1.5 max-h-36 overflow-y-auto">
+              {snapshots.slice(0, 5).map((snap) => {
+                const dtStr = new Date(snap.savedAt).toLocaleString('zh-TW', {
+                  month: '2-digit',
+                  day: '2-digit',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                });
+                return (
+                  <div
+                    key={snap.id}
+                    className="flex items-center justify-between gap-2 px-2.5 py-1.5 rounded-xl bg-white border border-[#EAD8C0] text-[11px]"
+                  >
+                    <span className="text-[#5C3F2D] font-semibold">
+                      {dtStr} · 🍽️{snap.mealCount} 餐 / 💧{snap.waterCount} 水 / 🔥{snap.workoutCount} 運動
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const parsed = parseVaultJson(snap.stateJson);
+                        if (parsed) {
+                          // Clear deletedIds from snapshot rescue so accidentally deleted items come back cleanly
+                          onImportBackup({ ...parsed, deletedIds: {} });
+                          setSnapshotFeedback(`✅ 已無損合併救回 ${dtStr} 的快照紀錄！`);
+                        }
+                      }}
+                      className="px-2.5 py-1 rounded-lg bg-[#FFF6E8] border border-[#DFC8AC] font-bold text-[#BA7E4D] shrink-0"
+                    >
+                      合併救回
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+            {snapshotFeedback && (
+              <p className="text-xs font-bold text-[#355E30]">{snapshotFeedback}</p>
+            )}
+          </div>
+        )}
+
+        {/* 5. Backup & Restore */}
         <div className="flex gap-2">
           <button
             type="button"
