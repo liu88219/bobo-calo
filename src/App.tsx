@@ -11,6 +11,7 @@ import {
   CalendarHeart,
   Lock,
   Sparkles,
+  PencilLine,
 } from 'lucide-react';
 import {
   VaultState,
@@ -57,7 +58,7 @@ const MealPhotoDisplay: React.FC<{ meal: MealLog }> = ({ meal }) => {
     return () => {
       active = false;
     };
-  }, [meal.id, meal.hasLocalHiResPhoto]);
+  }, [meal.id, meal.hasLocalHiResPhoto, meal.updatedAt]);
 
   const src = hiRes || meal.photoThumb;
   if (!src) return null;
@@ -89,6 +90,7 @@ export const App: React.FC = () => {
 
   // Modals & Active Flows
   const [showMealModal, setShowMealModal] = useState(false);
+  const [editingMeal, setEditingMeal] = useState<MealLog | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [focusMealForWorkout, setFocusMealForWorkout] = useState<MealLog | null>(null);
   const [activePlaylist, setActivePlaylist] = useState<{
@@ -219,12 +221,19 @@ export const App: React.FC = () => {
   // Handlers for Meals, Water, Workouts, Settings
   const handleSaveMeal = (meal: MealLog, launchExerciseAfter: boolean) => {
     const now = Date.now();
-    commitVaultUpdate((prev) => ({
-      ...prev,
-      updatedAt: now,
-      isUneditedDefault: false,
-      meals: [meal, ...prev.meals],
-    }));
+    const wasEditing = vault.meals.some((m) => m.id === meal.id);
+    commitVaultUpdate((prev) => {
+      const exists = prev.meals.some((m) => m.id === meal.id);
+      return {
+        ...prev,
+        updatedAt: now,
+        isUneditedDefault: false,
+        meals: exists
+          ? prev.meals.map((m) => (m.id === meal.id ? meal : m))
+          : [meal, ...prev.meals],
+      };
+    });
+    setEditingMeal(null);
     setShowMealModal(false);
     setSelectedDate(meal.dateKey);
 
@@ -232,6 +241,8 @@ export const App: React.FC = () => {
       setFocusMealForWorkout(meal);
       setActiveNav('workout');
       showToast('🦘 已幫妳配好這餐的溫柔消食運動菜單囉！');
+    } else if (wasEditing) {
+      showToast('✨ 已幫妳更新餐點並同步最新卡路里囉 🤎');
     } else {
       showToast('🍱 餐點紀錄完成！好好吃飯的妳最棒了 🤎');
     }
@@ -602,7 +613,10 @@ export const App: React.FC = () => {
                 {/* Big Primary CTA in DINOTAENG Vintage Tomato Red */}
                 <button
                   type="button"
-                  onClick={() => setShowMealModal(true)}
+                  onClick={() => {
+                    setEditingMeal(null);
+                    setShowMealModal(true);
+                  }}
                   className="w-full py-3.5 rounded-2xl bg-[#C83B32] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2"
                 >
                   <Camera className="w-5 h-5" />
@@ -627,7 +641,10 @@ export const App: React.FC = () => {
                 </h3>
                 <button
                   type="button"
-                  onClick={() => setShowMealModal(true)}
+                  onClick={() => {
+                    setEditingMeal(null);
+                    setShowMealModal(true);
+                  }}
                   className="text-xs font-bold text-[#BA7E4D]"
                 >
                   + 新增一餐
@@ -681,14 +698,26 @@ export const App: React.FC = () => {
                         <span>{meal.praise}</span>
                       </div>
 
-                      <div className="flex items-center justify-between pt-1">
-                        <button
-                          type="button"
-                          onClick={() => handleDeleteMeal(meal.id)}
-                          className="inline-flex items-center gap-1 text-xs text-[#B07268] hover:text-[#7D362B]"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" /> 刪除
-                        </button>
+                      <div className="flex items-center justify-between gap-2 pt-1 flex-wrap">
+                        <div className="flex items-center gap-2">
+                          <button
+                            type="button"
+                            onClick={() => {
+                              setEditingMeal(meal);
+                              setShowMealModal(true);
+                            }}
+                            className="inline-flex items-center gap-1 px-2.5 py-1.5 rounded-xl bg-[#EFECE3] hover:bg-[#E4E0D4] border border-[#DDD7C9] text-xs font-bold text-[#25385B]"
+                          >
+                            <PencilLine className="w-3.5 h-3.5" /> 編輯／重算
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteMeal(meal.id)}
+                            className="inline-flex items-center gap-1 px-2 py-1.5 text-xs text-[#B07268] hover:text-[#7D362B]"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" /> 刪除
+                          </button>
+                        </div>
                         <button
                           type="button"
                           onClick={() => {
@@ -850,12 +879,17 @@ export const App: React.FC = () => {
         <MealLoggerModal
           dateKey={selectedDate}
           geminiApiKey={vault.geminiApiKey}
+          initialMeal={editingMeal}
           onSaveMeal={handleSaveMeal}
           onOpenSettingsForApiKey={() => {
+            setEditingMeal(null);
             setShowMealModal(false);
             setShowSettingsModal(true);
           }}
-          onClose={() => setShowMealModal(false)}
+          onClose={() => {
+            setEditingMeal(null);
+            setShowMealModal(false);
+          }}
         />
       )}
 

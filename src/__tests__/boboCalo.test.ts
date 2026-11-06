@@ -1,4 +1,4 @@
-import { describe, it, expect } from 'vitest';
+import { describe, it, expect, vi, afterEach } from 'vitest';
 import {
   deriveVaultIdentity,
   encryptVaultPayload,
@@ -15,7 +15,10 @@ import {
   DEFAULT_PROFILE,
 } from '../types/tracker';
 import { buildMealChallengePlaylist } from '../data/exercises';
-import { parseGeminiNutritionJson } from '../services/geminiService';
+import {
+  parseGeminiNutritionJson,
+  recalculateMealFromEdits,
+} from '../services/geminiService';
 
 describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
   it('derives identical deterministic vaultKey across Safari and Standalone PWA for same passcode', async () => {
@@ -119,5 +122,104 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     expect(parsed.totalCalories).toBe(475);
     expect(parsed.proteinG).toBe(26);
     expect(parsed.items).toHaveLength(2);
+  });
+
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it('recalculates calories strictly from user-edited dish names, portions, and correction notes', async () => {
+    await expect(
+      recalculateMealFromEdits({
+        category: 'lunch',
+        editedItems: [{ name: '   ', portion: '1份' }],
+        correctionNote: '',
+      })
+    ).rejects.toThrow();
+
+    const fetchSpy = vi.spyOn(globalThis, 'fetch').mockResolvedValueOnce(
+      new Response(
+        JSON.stringify({
+          choices: [
+            {
+              message: {
+                content: JSON.stringify({
+                  title: '香煎板豆腐＋半碗糙米飯',
+                  items: [
+                    { name: '香煎板豆腐', portion: '1塊', calories: 165, proteinG: 14, carbsG: 4, fatG: 10 },
+                    { name: '糙米飯', portion: '半碗', calories: 140, proteinG: 3, carbsG: 30, fatG: 1 },
+                  ],
+                  praise: '修正後更準確囉！植物性蛋白質超棒 🤎',
+                }),
+              },
+            },
+          ],
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } }
+      )
+    );
+
+    const res = await recalculateMealFromEdits({
+      category: 'lunch',
+      editedItems: [
+        { name: '香煎板豆腐', portion: '1塊' },
+        { name: '糙米飯', portion: '半碗' },
+      ],
+      correctionNote: '少油乾煎，不是炸豬排',
+    });
+
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const bodySent = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body || '{}'));
+    const userPrompt = bodySent?.messages?.[1]?.content || '';
+    expect(userPrompt).toContain('香煎板豆腐');
+    expect(userPrompt).toContain('半碗');
+    expect(userPrompt).toContain('少油乾煎，不是炸豬排');
+    expect(res.totalCalories).toBe(305);
+    expect(res.items).toHaveLength(2);
+  });
+
+  it('propagates edited and recalculated MealLog across devices using updatedAt without duplicating', () => {
+    const olderDevice = createInitialVaultState();
+    olderDevice.isUneditedDefault = false;
+    olderDevice.updatedAt = 5000;
+    olderDevice.meals = [
+      {
+        id: 'meal-edit-1',
+        dateKey: '2026-11-06',
+        category: 'dinner',
+        title: '炸豬排便當',
+        items: [{ id: 'i-1', name: '炸豬排', portion: '1份', calories: 520, proteinG: 25, carbsG: 30, fatG: 32 }],
+        totalCalories: 520,
+        proteinG: 25,
+        carbsG: 30,
+        fatG: 32,
+        photoThumb: 'data:image/jpeg;base64,thumbdata',
+        praise: '吃飽飽！',
+        createdAt: 5000,
+        updatedAt: 5000,
+      },
+    ];
+
+    const editedDevice = createInitialVaultState();
+    editedDevice.isUneditedDefault = false;
+    editedDevice.updatedAt = 9000;
+    editedDevice.meals = [
+      {
+        ...olderDevice.meals[0],
+        title: '香煎板豆腐便當',
+        items: [{ id: 'i-2', name: '香煎板豆腐', portion: '1份', calories: 180, proteinG: 16, carbsG: 5, fatG: 11 }],
+        totalCalories: 180,
+        proteinG: 16,
+        carbsG: 5,
+        fatG: 11,
+        updatedAt: 9000,
+      },
+    ];
+
+    const merged = mergeVaultStates(olderDevice, editedDevice);
+    expect(merged.meals).toHaveLength(1);
+    expect(merged.meals[0].title).toBe('香煎板豆腐便當');
+    expect(merged.meals[0].totalCalories).toBe(180);
+    expect(merged.meals[0].photoThumb).toBe('data:image/jpeg;base64,thumbdata');
   });
 });

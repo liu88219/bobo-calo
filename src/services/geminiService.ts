@@ -374,6 +374,81 @@ export async function analyzeMealWithGemini(params: {
   return estimateNutritionKeyless(combinedPrompt, params.category);
 }
 
+/**
+ * 當照片 AI 辨識有誤時，讓使用者直接修改菜色名稱／份量／新增漏掉項目或補充修正說明，再重新精準計算卡路里與三大營養素！
+ * （不重跑視覺猜測，避免 AI 又把使用者改對的菜名改回錯的，且速度僅需約 1~2 秒！）
+ */
+export async function recalculateMealFromEdits(params: {
+  apiKey?: string;
+  category: MealCategory;
+  editedItems: Array<{ name: string; portion: string }>;
+  correctionNote?: string;
+}): Promise<GeminiMealAnalysis> {
+  const validItems = params.editedItems
+    .map((x) => ({
+      name: x.name.trim(),
+      portion: x.portion.trim() || '1份',
+    }))
+    .filter((x) => x.name.length > 0);
+
+  if (validItems.length === 0 && !params.correctionNote?.trim()) {
+    throw new Error('請至少保留一樣食物名稱，或填寫修正內容再重新計算喔 🤎');
+  }
+
+  const listLines = validItems
+    .map((it, idx) => `${idx + 1}. 食物名稱：${it.name}｜實際份量：${it.portion}`)
+    .join('\n');
+
+  const recalcPrompt = [
+    '使用者已手動修正這餐「真正正確的食物清單與份量」，請以此為 100% 事實基準重新精算每一項的卡路里與營養素：',
+    listLines ? `【修正後的正確清單】：\n${listLines}` : '',
+    params.correctionNote?.trim()
+      ? `【使用者額外修正指示（請優先套用）】：${params.correctionNote.trim()}`
+      : '',
+    '請保留使用者修正後的正確食物名稱與份量（若額外修正指示有要求調整則依指示更新），重新估算每一項對應的 calories、proteinG、carbsG、fatG，並回傳相同 JSON 格式！',
+  ]
+    .filter(Boolean)
+    .join('\n\n');
+
+  const cleanKey = (params.apiKey || '').trim();
+  if (cleanKey) {
+    for (const model of GEMINI_MODELS) {
+      try {
+        const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanKey)}`;
+        const res = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            contents: [
+              {
+                role: 'user',
+                parts: [{ text: `${NUTRITION_SYSTEM_PROMPT}\n\n${recalcPrompt}` }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.2,
+              responseMimeType: 'application/json',
+            },
+          }),
+        });
+        if (!res.ok) continue;
+        const json = await res.json();
+        const rawText: string =
+          json?.candidates?.[0]?.content?.parts
+            ?.map((p: { text?: string }) => p.text || '')
+            .join('') || '';
+        if (rawText) {
+          return parseGeminiNutritionJson(rawText, params.category);
+        }
+      } catch {
+        // Fallback to built-in keyless engine
+      }
+    }
+  }
+
+  return estimateNutritionKeyless(recalcPrompt, params.category);
+}
+
 export async function testGeminiApiKey(apiKey: string): Promise<boolean> {
   const clean = apiKey.trim();
   if (!clean) return false;
