@@ -162,7 +162,7 @@ export const SettingsVaultModal: React.FC<Props> = ({
           <div className="flex items-center justify-between">
             <div className="flex items-center gap-2 font-black text-sm text-[#422B1D]">
               <KeyRound className="w-4 h-4 text-[#BA7E4D]" />
-              <span>Gemini AI 拍照算熱量金鑰</span>
+              <span>選填加速：自備 Gemini API Key（不填也能直接用！）</span>
             </div>
             <a
               href="https://aistudio.google.com/app/apikey"
@@ -170,11 +170,11 @@ export const SettingsVaultModal: React.FC<Props> = ({
               rel="noreferrer"
               className="inline-flex items-center gap-1 text-xs font-bold text-[#BA7E4D] underline"
             >
-              免費領取 API Key <ExternalLink className="w-3 h-3" />
+              免費領取 <ExternalLink className="w-3 h-3" />
             </a>
           </div>
           <p className="text-xs text-[#7C5841]">
-            前往 Google AI Studio 點選「Create API key」即可免費取得。金鑰只會以妳的通行碼加密保存，絕不會暴露在公開 GitHub！
+            ✅ <strong>系統已內建免金鑰雲端視覺與語意 AI</strong>，打開就能直接拍照或打字算熱量！若妳想切換成個人專屬高速 Gemini 通道，也可選填於此（前端加密同步、不公開於 GitHub）。
           </p>
           <div className="flex gap-2">
             <div className="relative flex-1">

@@ -97,6 +97,11 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     const gentleCombo = buildMealChallengePlaylist(640, 54, 'gentle_25');
     expect(gentleCombo.targetCalories).toBe(160);
     expect(gentleCombo.items.length).toBeGreaterThanOrEqual(3);
+    expect(gentleCombo.items.every((i) => i.durationSec <= 240)).toBe(true);
+
+    const quick4Min = buildMealChallengePlaylist(500, 54, 'quick_4min_arm_bed');
+    const totalQuickSec = quick4Min.items.reduce((s, i) => s + i.durationSec, 0);
+    expect(totalQuickSec).toBe(240);
   });
 
   it('parses Gemini nutrition JSON fenced output cleanly', () => {

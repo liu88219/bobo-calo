@@ -42,7 +42,11 @@ interface Props {
 
 type Phase = 'ready' | 'active' | 'rest' | 'finished';
 
-const UNILATERAL_IDS = new Set(['side_leg_raise', 'spinal_twist']);
+const UNILATERAL_IDS = new Set([
+  'swan_arm_circles',
+  'bed_clamshell_leg',
+  'bed_spinal_twist',
+]);
 
 export const WorkoutPlayerModal: React.FC<Props> = ({
   playlist,

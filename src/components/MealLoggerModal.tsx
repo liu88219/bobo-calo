@@ -104,10 +104,6 @@ export const MealLoggerModal: React.FC<Props> = ({
       setErrorMsg('請先拍一張美食照片，或輸入吃了什麼喔 🍱');
       return;
     }
-    if (!geminiApiKey.trim()) {
-      setErrorMsg('尚未填入免費的 Gemini API Key～點下方按鈕 30 秒設定好就能 AI 拍照算熱量囉！');
-      return;
-    }
 
     setAnalyzing(true);
     try {
@@ -387,31 +383,23 @@ export const MealLoggerModal: React.FC<Props> = ({
               type="button"
               disabled={analyzing}
               onClick={handleRunAiAnalysis}
-              className="w-full py-3 rounded-2xl bg-[#BA7E4D] text-white font-bold text-sm doodle-btn flex items-center justify-center gap-2 disabled:opacity-60"
+              className="w-full py-3.5 rounded-2xl bg-[#C83B32] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2 disabled:opacity-60"
             >
               {analyzing ? (
                 <>
                   <Loader2 className="w-4 h-4 animate-spin" />
-                  矮袋鼠正戴著小眼鏡聞香估算中...
+                  Quokka & BOBO 正在看照片聞香估算中（約 3~8 秒）...
                 </>
               ) : (
                 <>
                   <Sparkles className="w-4 h-4" />
-                  請矮袋鼠 AI 幫我算卡路里！
+                  請 Quokka ＆ BOBO AI 幫我算卡路里！
                 </>
               )}
             </button>
-
-            {!geminiApiKey.trim() && (
-              <button
-                type="button"
-                onClick={onOpenSettingsForApiKey}
-                className="w-full py-2 px-3 rounded-xl bg-[#FFF3DF] border border-[#E6B87D] text-xs font-bold text-[#7A5116] flex items-center justify-center gap-1.5"
-              >
-                <Settings className="w-3.5 h-3.5" />
-                尚未設定免費 Gemini API Key？點此 30 秒設定（加密同步不外洩）
-              </button>
-            )}
+            <p className="text-[11px] text-center text-[#6E6459]">
+              ✨ 已幫妳內建免設定雲端視覺與營養 AI，不用填 API Key 就能直接拍照或打字估算喔！
+            </p>
           </div>
         ) : (
           /* Offline Taiwan Preset Picker */

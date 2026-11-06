@@ -3,6 +3,7 @@ import { Play, Plus, Minus, Sparkles, Flame, Trash2, Music } from 'lucide-react'
 import {
   MealLog,
   WorkoutPlaylistItem,
+  ExerciseCategory,
   calculateExerciseCalories,
 } from '../types/tracker';
 import {
@@ -31,17 +32,18 @@ export const WorkoutPlannerView: React.FC<Props> = ({
     initialFocusMeal?.id || todayMeals[0]?.id || 'custom'
   );
   const [customMealKcal, setCustomMealKcal] = useState<number>(500);
-  const [intensity, setIntensity] = useState<ChallengeIntensity>('gentle_25');
-
-  // Mode 2: Pick & Mix Cart
-  const [pickTargetKcal, setPickTargetKcal] = useState<number>(
-    initialFocusMeal ? Math.max(40, Math.round(initialFocusMeal.totalCalories * 0.25)) : 100
+  const [intensity, setIntensity] = useState<ChallengeIntensity>(
+    initialFocusMeal ? 'gentle_25' : 'quick_4min_arm_bed'
   );
-  const [filterCat, setFilterCat] = useState<'all' | 'silent_home' | 'post_meal_yoga'>('all');
+
+  // Mode 2: Pick & Mix Cart (default 4-min exercises!)
+  const [pickTargetKcal, setPickTargetKcal] = useState<number>(
+    initialFocusMeal ? Math.max(40, Math.round(initialFocusMeal.totalCalories * 0.25)) : 60
+  );
+  const [filterCat, setFilterCat] = useState<'all' | ExerciseCategory>('all');
   const [cart, setCart] = useState<WorkoutPlaylistItem[]>([
-    { exerciseId: 'slow_jogging_180', durationSec: 180 },
-    { exerciseId: 'slow_squat', durationSec: 60 },
-    { exerciseId: 'cat_cow', durationSec: 60 },
+    { exerciseId: 'swan_arm_circles', durationSec: 240 },
+    { exerciseId: 'bed_air_bike', durationSec: 240 },
   ]);
 
   const activeMeal = useMemo(
@@ -59,7 +61,9 @@ export const WorkoutPlannerView: React.FC<Props> = ({
   const autoComboStats = useMemo(() => {
     const totalSec = autoCombo.items.reduce((s, x) => s + x.durationSec, 0);
     const totalKcal = autoCombo.items.reduce(
-      (s, x) => s + calculateExerciseCalories(getExerciseById(x.exerciseId).met, weightKg, x.durationSec),
+      (s, x) =>
+        s +
+        calculateExerciseCalories(getExerciseById(x.exerciseId).met, weightKg, x.durationSec),
       0
     );
     return { totalSec, totalKcal };
@@ -68,7 +72,9 @@ export const WorkoutPlannerView: React.FC<Props> = ({
   const cartStats = useMemo(() => {
     const totalSec = cart.reduce((s, x) => s + x.durationSec, 0);
     const totalKcal = cart.reduce(
-      (s, x) => s + calculateExerciseCalories(getExerciseById(x.exerciseId).met, weightKg, x.durationSec),
+      (s, x) =>
+        s +
+        calculateExerciseCalories(getExerciseById(x.exerciseId).met, weightKg, x.durationSec),
       0
     );
     return { totalSec, totalKcal };
@@ -92,7 +98,7 @@ export const WorkoutPlannerView: React.FC<Props> = ({
         .map((x) =>
           x.exerciseId === exerciseId ? { ...x, durationSec: x.durationSec + deltaSec } : x
         )
-        .filter((x) => x.durationSec >= 15)
+        .filter((x) => x.durationSec >= 30)
     );
   };
 
@@ -117,127 +123,129 @@ export const WorkoutPlannerView: React.FC<Props> = ({
             type="button"
             onClick={() => setPlannerMode('combo')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-black transition ${
-              plannerMode === 'combo'
-                ? 'bg-[#C83B32] text-white shadow-sm'
-                : 'text-[#4A3F35]'
+              plannerMode === 'combo' ? 'bg-[#C83B32] text-white shadow-sm' : 'text-[#4A3F35]'
             }`}
           >
-            🍱 餐後智慧組合菜單
+            ✨ 4分鐘懶人跟練＆餐後菜單
           </button>
           <button
             type="button"
             onClick={() => setPlannerMode('pick')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-black transition ${
-              plannerMode === 'pick'
-                ? 'bg-[#25385B] text-white shadow-sm'
-                : 'text-[#4A3F35]'
+              plannerMode === 'pick' ? 'bg-[#25385B] text-white shadow-sm' : 'text-[#4A3F35]'
             }`}
           >
-            🛒 自由湊單＆動作圖鑑
+            💪 手部／床上 4分鐘圖鑑
           </button>
         </div>
       </div>
 
       {plannerMode === 'combo' ? (
-        /* === Mode 1: Meal-paired Automatic Workout Playlist === */
         <div className="doodle-card p-4 space-y-4">
           <div>
-            <h3 className="font-black text-base text-[#422B1D] flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-[#F4B860]" />
-              矮袋鼠幫妳配好的餐後挑戰菜單
+            <h3 className="font-black text-base text-[#2C241E] flex items-center gap-1.5">
+              <Sparkles className="w-4 h-4 text-[#E0A838]" />
+              Quokka ＆ BOBO 的簡短 4 分鐘跟練菜單
             </h3>
-            <p className="text-xs text-[#7C5841] mt-0.5">
-              選擇今天吃的一餐，自動串聯「超慢跑消食 ➜ 靜音雕塑 ➜ 瑜珈伸展」動態倒數跟練！
+            <p className="text-xs text-[#6E6459] mt-0.5">
+              主打「手部線條雕塑」與「床上躺練」，每項動作控制在短短 4 分鐘內輕鬆無壓力！
             </p>
           </div>
 
-          {/* Select Meal or Custom Kcal */}
-          <div className="space-y-2">
-            <label className="block text-xs font-bold text-[#5C3F2D]">搭配哪一餐呢？</label>
-            <div className="flex flex-wrap gap-2">
-              {todayMeals.map((m) => (
-                <button
-                  key={m.id}
-                  type="button"
-                  onClick={() => setSelectedMealId(m.id)}
-                  className={`px-3 py-1.5 rounded-2xl text-xs font-bold border-2 transition ${
-                    selectedMealId === m.id
-                      ? 'bg-[#FFF3DF] border-[#422B1D] text-[#422B1D]'
-                      : 'bg-white border-[#EAD8C0] text-[#7C5841]'
-                  }`}
-                >
-                  {m.title.slice(0, 10)} ({m.totalCalories} kcal)
-                </button>
-              ))}
-              <button
-                type="button"
-                onClick={() => setSelectedMealId('custom')}
-                className={`px-3 py-1.5 rounded-2xl text-xs font-bold border-2 transition ${
-                  selectedMealId === 'custom'
-                    ? 'bg-[#FFF3DF] border-[#422B1D] text-[#422B1D]'
-                    : 'bg-white border-[#EAD8C0] text-[#7C5841]'
-                }`}
-              >
-                ✏️ 自訂餐點熱量
-              </button>
-            </div>
-
-            {selectedMealId === 'custom' && (
-              <div className="flex items-center gap-2 pt-1">
-                <span className="text-xs text-[#7C5841]">輸入這餐熱量：</span>
-                <input
-                  type="number"
-                  value={customMealKcal}
-                  onChange={(e) => setCustomMealKcal(Number(e.target.value))}
-                  className="w-24 px-3 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-sm font-black text-[#BA7E4D]"
-                />
-                <span className="text-xs text-[#7C5841]">kcal</span>
-              </div>
-            )}
-          </div>
-
-          {/* Intensity Selector */}
-          <div className="grid grid-cols-3 gap-2">
+          {/* 4 Intensity / Quick 4-Min Modes */}
+          <div className="grid grid-cols-2 gap-2">
             {[
               {
+                id: 'quick_4min_arm_bed' as ChallengeIntensity,
+                title: '⭐ 黃金 4 分鐘手部＋床上操',
+                desc: '4個動作各1分鐘，睡前/追劇秒完成！',
+              },
+              {
                 id: 'gentle_25' as ChallengeIntensity,
-                title: '🌱 輕鬆消食 25%',
-                desc: '推薦！無負擔好堅持',
+                title: '🌱 餐後溫柔消食 (抵銷25%)',
+                desc: '每動 4 分鐘・手部＋床上輕鬆配',
               },
               {
                 id: 'half_50' as ChallengeIntensity,
-                title: '🌤️ 活力半糖 50%',
-                desc: '流點微汗超舒暢',
+                title: '🌤️ 活力半糖挑戰 (抵銷50%)',
+                desc: '多組 4 分鐘短動作串聯微出汗',
               },
               {
                 id: 'full_100' as ChallengeIntensity,
-                title: '🔥 100% 全消挑戰',
-                desc: '超熱血燃燒全餐',
+                title: '🔥 全額熱血挑戰 (100%)',
+                desc: '拆成多段 4 分鐘好堅持不枯燥',
               },
             ].map((opt) => (
               <button
                 key={opt.id}
                 type="button"
                 onClick={() => setIntensity(opt.id)}
-                className={`p-2.5 rounded-2xl border-2 text-left transition ${
+                className={`p-3 rounded-2xl border text-left transition ${
                   intensity === opt.id
-                    ? 'bg-[#F5E6D3] border-[#422B1D]'
-                    : 'bg-white border-[#EAD8C0]'
+                    ? 'bg-[#F3C85F] border-[#2C241E]'
+                    : 'bg-[#EFECE3] border-transparent'
                 }`}
               >
-                <div className="text-xs font-black text-[#422B1D]">{opt.title}</div>
-                <div className="text-[10px] text-[#7C5841] mt-0.5">{opt.desc}</div>
+                <div className="text-xs font-black text-[#2C241E]">{opt.title}</div>
+                <div className="text-[10px] text-[#5C5145] mt-0.5">{opt.desc}</div>
               </button>
             ))}
           </div>
 
+          {/* Select Meal when using meal-ratio modes */}
+          {intensity !== 'quick_4min_arm_bed' && (
+            <div className="space-y-2">
+              <label className="block text-xs font-bold text-[#4A3F35]">搭配哪一餐換算呢？</label>
+              <div className="flex flex-wrap gap-2">
+                {todayMeals.map((m) => (
+                  <button
+                    key={m.id}
+                    type="button"
+                    onClick={() => setSelectedMealId(m.id)}
+                    className={`px-3 py-1.5 rounded-2xl text-xs font-bold border transition ${
+                      selectedMealId === m.id
+                        ? 'bg-[#25385B] text-white border-[#25385B]'
+                        : 'bg-white border-[#DAD4C6] text-[#5C5145]'
+                    }`}
+                  >
+                    {m.title.slice(0, 10)} ({m.totalCalories} kcal)
+                  </button>
+                ))}
+                <button
+                  type="button"
+                  onClick={() => setSelectedMealId('custom')}
+                  className={`px-3 py-1.5 rounded-2xl text-xs font-bold border transition ${
+                    selectedMealId === 'custom'
+                      ? 'bg-[#25385B] text-white border-[#25385B]'
+                      : 'bg-white border-[#DAD4C6] text-[#5C5145]'
+                  }`}
+                >
+                  ✏️ 自訂熱量
+                </button>
+              </div>
+
+              {selectedMealId === 'custom' && (
+                <div className="flex items-center gap-2 pt-1">
+                  <span className="text-xs text-[#6E6459]">輸入這餐熱量：</span>
+                  <input
+                    type="number"
+                    value={customMealKcal}
+                    onChange={(e) => setCustomMealKcal(Number(e.target.value))}
+                    className="w-24 px-3 py-1.5 rounded-xl border border-[#D8D2C5] bg-white text-sm font-black text-[#C83B32]"
+                  />
+                  <span className="text-xs text-[#6E6459]">kcal</span>
+                </div>
+              )}
+            </div>
+          )}
+
           {/* Playlist Preview */}
-          <div className="rounded-2xl bg-[#FAF4EB] p-3.5 border border-[#E5CFB3] space-y-2.5">
+          <div className="rounded-2xl bg-[#EFECE3] p-3.5 space-y-2.5">
             <div className="flex items-center justify-between">
-              <span className="text-xs font-bold text-[#5C3F2D]">
-                共 {autoCombo.items.length} 個動作 · 約 {formatDurationLabel(autoComboStats.totalSec)}
+              <span className="text-xs font-bold text-[#3D342C]">
+                共 {autoCombo.items.length} 個動作 · 總計 {formatDurationLabel(autoComboStats.totalSec)}
               </span>
-              <span className="text-sm font-black text-[#BA7E4D]">
+              <span className="text-sm font-black text-[#C83B32]">
                 預計消耗 🔥 {autoComboStats.totalKcal} kcal
               </span>
             </div>
@@ -249,29 +257,29 @@ export const WorkoutPlannerView: React.FC<Props> = ({
                 return (
                   <div
                     key={`${item.exerciseId}-${idx}`}
-                    className="flex items-center justify-between p-2.5 rounded-xl bg-white border border-[#EAD8C0]"
+                    className="flex items-center justify-between p-2.5 rounded-xl bg-[#FAF8F3]"
                   >
                     <div className="flex items-center gap-2.5">
-                      <span className="w-5 h-5 rounded-full bg-[#F5E6D3] text-[#422B1D] text-xs font-black flex items-center justify-center">
+                      <span className="w-5 h-5 rounded-full bg-[#F3C85F] text-[#2C241E] text-xs font-black flex items-center justify-center">
                         {idx + 1}
                       </span>
                       <div>
-                        <div className="text-xs font-black text-[#422B1D] flex items-center gap-1">
+                        <div className="text-xs font-black text-[#2C241E] flex items-center gap-1">
                           {def.name}
                           {def.hasMetronome180 && (
-                            <span className="px-1.5 py-0.5 rounded bg-[#E3F1DF] text-[#355E30] text-[10px]">
+                            <span className="px-1.5 py-0.5 rounded bg-[#DCE6D8] text-[#355E30] text-[10px]">
                               ♪ 180節拍
                             </span>
                           )}
                         </div>
-                        <div className="text-[11px] text-[#7C5841]">{def.subtitle}</div>
+                        <div className="text-[11px] text-[#6E6459]">{def.subtitle}</div>
                       </div>
                     </div>
                     <div className="text-right shrink-0 ml-2">
-                      <div className="text-xs font-black text-[#422B1D]">
+                      <div className="text-xs font-black text-[#2C241E]">
                         {formatDurationLabel(item.durationSec)}
                       </div>
-                      <div className="text-[10px] text-[#BA7E4D] font-bold">{kcal} kcal</div>
+                      <div className="text-[10px] text-[#C83B32] font-bold">{kcal} kcal</div>
                     </div>
                   </div>
                 );
@@ -289,43 +297,44 @@ export const WorkoutPlannerView: React.FC<Props> = ({
           </button>
         </div>
       ) : (
-        /* === Mode 2: Pick & Mix Custom Basket + Animated Pose Gallery === */
+        /* === Mode 2: 4-Minute Arm & Bed Gallery + Pick & Mix === */
         <div className="space-y-4">
-          {/* Sticky Basket Summary */}
           <div className="doodle-card p-4 space-y-3">
             <div className="flex items-center justify-between">
               <div>
-                <h3 className="font-black text-base text-[#422B1D]">🛒 我的自選運動湊單籃</h3>
-                <p className="text-xs text-[#7C5841]">自由挑選今天想做的動作湊滿目標卡路里！</p>
+                <h3 className="font-black text-base text-[#2C241E]">🛒 我的 4 分鐘自選湊單籃</h3>
+                <p className="text-xs text-[#6E6459]">點下方動作即可單獨練 4 分鐘，或加入湊單籃串著練！</p>
               </div>
               <div className="flex items-center gap-1.5">
-                <span className="text-xs text-[#7C5841]">目標</span>
+                <span className="text-xs text-[#6E6459]">目標</span>
                 <input
                   type="number"
                   value={pickTargetKcal}
                   onChange={(e) => setPickTargetKcal(Math.max(10, Number(e.target.value)))}
-                  className="w-16 px-2 py-1 rounded-xl border border-[#DFC8AC] bg-white text-xs font-black text-center text-[#BA7E4D]"
+                  className="w-16 px-2 py-1 rounded-xl border border-[#D8D2C5] bg-white text-xs font-black text-center text-[#C83B32]"
                 />
-                <span className="text-xs text-[#7C5841]">kcal</span>
+                <span className="text-xs text-[#6E6459]">kcal</span>
               </div>
             </div>
 
-            {/* Target Progress Bar */}
             <div>
               <div className="flex justify-between text-xs font-bold mb-1">
-                <span className="text-[#5C3F2D]">
-                  已湊 {cart.length} 個動作（{formatDurationLabel(cartStats.totalSec)}）
+                <span className="text-[#4A3F35]">
+                  已選 {cart.length} 個動作（共 {formatDurationLabel(cartStats.totalSec)}）
                 </span>
-                <span className="text-[#BA7E4D]">
+                <span className="text-[#C83B32]">
                   <Flame className="w-3.5 h-3.5 inline mr-0.5" />
                   {cartStats.totalKcal} / {pickTargetKcal} kcal
                 </span>
               </div>
-              <div className="w-full h-3 rounded-full bg-[#EAD8C0] overflow-hidden">
+              <div className="w-full h-2.5 rounded-full bg-[#DAD4C6] overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-[#8FBC8B] to-[#BA7E4D] transition-all duration-300"
+                  className="h-full rounded-full bg-gradient-to-r from-[#6D8B67] to-[#C83B32] transition-all duration-300"
                   style={{
-                    width: `${Math.min(100, Math.round((cartStats.totalKcal / Math.max(1, pickTargetKcal)) * 100))}%`,
+                    width: `${Math.min(
+                      100,
+                      Math.round((cartStats.totalKcal / Math.max(1, pickTargetKcal)) * 100)
+                    )}%`,
                   }}
                 />
               </div>
@@ -339,17 +348,17 @@ export const WorkoutPlannerView: React.FC<Props> = ({
                   return (
                     <div
                       key={item.exerciseId}
-                      className="flex items-center justify-between p-2 rounded-xl bg-[#FAF4EB] border border-[#E5CFB3]"
+                      className="flex items-center justify-between p-2 rounded-xl bg-[#EFECE3]"
                     >
-                      <div className="text-xs font-bold text-[#422B1D]">
+                      <div className="text-xs font-bold text-[#2C241E]">
                         {def.name}{' '}
-                        <span className="text-[#BA7E4D] font-black">({kcal} kcal)</span>
+                        <span className="text-[#C83B32] font-black">({kcal} kcal)</span>
                       </div>
                       <div className="flex items-center gap-1.5">
                         <button
                           type="button"
-                          onClick={() => adjustCartDuration(item.exerciseId, -30)}
-                          className="p-1 rounded-lg bg-white border border-[#DFC8AC]"
+                          onClick={() => adjustCartDuration(item.exerciseId, -60)}
+                          className="p-1 rounded-lg bg-white"
                         >
                           <Minus className="w-3 h-3" />
                         </button>
@@ -358,8 +367,8 @@ export const WorkoutPlannerView: React.FC<Props> = ({
                         </span>
                         <button
                           type="button"
-                          onClick={() => adjustCartDuration(item.exerciseId, 30)}
-                          className="p-1 rounded-lg bg-white border border-[#DFC8AC]"
+                          onClick={() => adjustCartDuration(item.exerciseId, 60)}
+                          className="p-1 rounded-lg bg-white"
                         >
                           <Plus className="w-3 h-3" />
                         </button>
@@ -384,25 +393,26 @@ export const WorkoutPlannerView: React.FC<Props> = ({
               className="w-full py-3 rounded-2xl bg-[#25385B] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <Play className="w-4 h-4 fill-current" />
-              開始執行我的湊單跟練（{formatDurationLabel(cartStats.totalSec)}）
+              開始執行湊單跟練（{formatDurationLabel(cartStats.totalSec)}）
             </button>
           </div>
 
-          {/* Category Filter */}
-          <div className="flex gap-2">
+          {/* Category Filter Pills */}
+          <div className="flex gap-2 overflow-x-auto pb-1">
             {[
-              { id: 'all' as const, label: '✨ 全部動作 (11)' },
-              { id: 'silent_home' as const, label: '🏠 居家靜音不傷膝' },
-              { id: 'post_meal_yoga' as const, label: '🧘‍♀️ 餐後消食＆瑜珈' },
+              { id: 'all' as const, label: '✨ 全部 4分鐘動作 (13)' },
+              { id: 'arm_sculpt' as const, label: '💪 手部線條＆天鵝臂 (4)' },
+              { id: 'bed_workout' as const, label: '🛏️ 床上躺練專區 (5)' },
+              { id: 'post_meal_silent' as const, label: '🧘‍♀️ 餐後消食＆靜音 (4)' },
             ].map((f) => (
               <button
                 key={f.id}
                 type="button"
                 onClick={() => setFilterCat(f.id)}
-                className={`px-3 py-1.5 rounded-full text-xs font-bold border transition ${
+                className={`px-3 py-1.5 rounded-full text-xs font-bold whitespace-nowrap transition ${
                   filterCat === f.id
-                    ? 'bg-[#422B1D] text-white border-[#422B1D]'
-                    : 'bg-white text-[#5C3F2D] border-[#DFC8AC]'
+                    ? 'bg-[#2C241E] text-white'
+                    : 'bg-[#FAF8F3] text-[#4A3F35] border border-[#DDD7C9]'
                 }`}
               >
                 {f.label}
@@ -410,33 +420,36 @@ export const WorkoutPlannerView: React.FC<Props> = ({
             ))}
           </div>
 
-          {/* Animated Pose Cards Gallery */}
+          {/* Animated 4-Minute Pose Cards Gallery */}
           <div className="grid grid-cols-1 sm:grid-cols-2 gap-3.5">
             {visibleExercises.map((ex) => {
-              const kcalPer3Min = calculateExerciseCalories(ex.met, weightKg, 180);
+              const kcalPer4Min = calculateExerciseCalories(ex.met, weightKg, ex.defaultDurationSec);
               return (
-                <div key={ex.id} className="doodle-card p-3.5 flex flex-col justify-between space-y-3">
+                <div
+                  key={ex.id}
+                  className="doodle-card p-3.5 flex flex-col justify-between space-y-3"
+                >
                   <div className="space-y-2">
-                    <ExerciseAnimationStage exerciseId={ex.id} className="w-full h-36" />
+                    <ExerciseAnimationStage exerciseId={ex.id} className="w-full h-40" />
                     <div className="flex items-start justify-between gap-2">
                       <div>
-                        <h4 className="font-black text-sm text-[#422B1D] flex items-center gap-1">
+                        <h4 className="font-black text-sm text-[#2C241E] flex items-center gap-1">
                           {ex.name}
                           {ex.hasMetronome180 && (
-                            <Music className="w-3.5 h-3.5 text-[#355E30]" />
+                            <Music className="w-3.5 h-3.5 text-[#485F44]" />
                           )}
                         </h4>
-                        <p className="text-[11px] text-[#7C5841] mt-0.5">{ex.subtitle}</p>
+                        <p className="text-[11px] text-[#6E6459] mt-0.5">{ex.subtitle}</p>
                       </div>
-                      <span className="px-2 py-0.5 rounded-full bg-[#FFF3DF] text-[#BA7E4D] text-[11px] font-black shrink-0">
-                        3分鐘 ≈ {kcalPer3Min} kcal
+                      <span className="px-2 py-0.5 rounded-full bg-[#F3C85F]/40 text-[#7A5116] text-[11px] font-black shrink-0">
+                        4分鐘 ≈ {kcalPer4Min} kcal
                       </span>
                     </div>
                     <div className="flex flex-wrap gap-1">
                       {ex.tags.map((t) => (
                         <span
                           key={t}
-                          className="px-2 py-0.5 rounded-full bg-[#FAF4EB] border border-[#E5CFB3] text-[10px] font-bold text-[#7C5841]"
+                          className="px-2 py-0.5 rounded-full bg-[#EFECE3] text-[10px] font-bold text-[#5C5145]"
                         >
                           #{t}
                         </span>
@@ -452,16 +465,16 @@ export const WorkoutPlannerView: React.FC<Props> = ({
                           { exerciseId: ex.id, durationSec: ex.defaultDurationSec },
                         ])
                       }
-                      className="flex-1 py-2 rounded-xl bg-[#EFECE3] text-xs font-bold text-[#2C241E] flex items-center justify-center gap-1"
+                      className="flex-1 py-2.5 rounded-xl bg-[#C83B32] text-xs font-black text-white flex items-center justify-center gap-1"
                     >
-                      <Play className="w-3.5 h-3.5 fill-current" /> 單項跟練
+                      <Play className="w-3.5 h-3.5 fill-current" /> 練這項 4 分鐘
                     </button>
                     <button
                       type="button"
                       onClick={() => addToCart(ex.id, ex.defaultDurationSec)}
-                      className="flex-1 py-2 rounded-xl bg-[#F3C85F] text-xs font-black text-[#2C241E] flex items-center justify-center gap-1"
+                      className="px-3 py-2.5 rounded-xl bg-[#F3C85F] text-xs font-black text-[#2C241E] flex items-center justify-center gap-1"
                     >
-                      <Plus className="w-3.5 h-3.5" /> 加入湊單
+                      <Plus className="w-3.5 h-3.5" /> 湊單
                     </button>
                   </div>
                 </div>

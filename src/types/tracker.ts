@@ -44,7 +44,7 @@ export interface MealLog {
   updatedAt: number;
 }
 
-export type ExerciseCategory = 'silent_home' | 'post_meal_yoga';
+export type ExerciseCategory = 'arm_sculpt' | 'bed_workout' | 'post_meal_silent';
 
 export interface ExerciseDefinition {
   id: string;

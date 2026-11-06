@@ -5,185 +5,219 @@ import {
 } from '../types/tracker';
 
 export const EXERCISES: ExerciseDefinition[] = [
-  // === 1. 居家免器材・靜音不傷膝 ===
+  // === 1. 💪 天鵝手臂＆肩頸線條 (坐著／床邊也能練，每項簡短 4 分鐘) ===
   {
-    id: 'slow_squat',
-    name: '慢速靜音深蹲',
-    subtitle: '喚醒臀腿最大肌群，完全不跳躍不吵鄰居',
-    category: 'silent_home',
-    met: 5.0,
-    defaultDurationSec: 60,
+    id: 'swan_arm_circles',
+    name: '4分鐘天鵝手臂畫小圈',
+    subtitle: '坐床邊就能做！緊實上手臂線條、練出優雅直角肩',
+    category: 'arm_sculpt',
+    met: 3.4,
+    defaultDurationSec: 240,
     steps: [
-      '雙腳打開與肩同寬，腳尖微朝外約 15 度',
-      '屁股像要往後坐小椅子一樣慢慢往下蹲，重心踩穩腳後跟',
-      '膝蓋對齊腳尖方向不內夾，吐氣夾緊屁股穩穩站起來',
+      '坐姿或站姿挺胸、肩膀往下沉遠離耳朵，雙手向兩側平舉呈 T 字型',
+      '手臂打直延伸，指尖像往遠方拉長一樣，用肩膀與上手臂力量畫硬幣大小的小圈',
+      '前 2 分鐘往前畫圈，聽到換邊鈴聲後改往後畫圈 2 分鐘！',
     ],
-    breathingTip: '吸氣 2 秒慢慢蹲下，吐氣 2 秒溫柔站起',
-    quokkaCheer: '矮袋鼠陪妳一起坐隱形小椅子～大腿酸酸代表正在發光喔！',
-    tags: ['靜音零跳躍', '緊實臀腿', '高燃脂'],
+    breathingTip: '保持均勻深呼吸不聳肩，手酸酸熱熱代表掰掰袖正在燃燒喔',
+    quokkaCheer: 'Quokka 跟著妳一起張開小短手畫圈圈～天鵝手臂養成中 ✨',
+    tags: ['4分鐘短練', '緊實掰掰袖', '直角肩', '坐床邊可做'],
   },
   {
-    id: 'standing_knee_crunch',
-    name: '站姿提膝收腹',
-    subtitle: '溫和拉高心率、加強腰腹線條的靜音有氧',
-    category: 'silent_home',
-    met: 4.5,
-    defaultDurationSec: 60,
-    steps: [
-      '雙手輕放在耳後或抱胸前，抬頭挺胸站穩',
-      '吐氣時將右膝往上抬，身體微轉讓左手肘靠近右膝',
-      '輕輕放回地板（腳尖先落地超安靜！），換另一側交替進行',
-    ],
-    breathingTip: '抬膝時嘴巴「嘶～」吐氣收緊肚子，放下時鼻子吸氣',
-    quokkaCheer: '一二、一二！Bobo 在旁邊跟著妳左右搖擺超開心！',
-    tags: ['靜音有氧', '雕塑小腹', '不傷膝'],
-  },
-  {
-    id: 'glute_bridge',
-    name: '躺姿療癒臀橋',
-    subtitle: '躺在瑜珈墊或床上就能做！提臀又放鬆久坐下背',
-    category: 'silent_home',
-    met: 3.8,
-    defaultDurationSec: 60,
-    steps: [
-      '仰躺在墊子上，雙膝彎曲踩地，腳跟靠近屁股約一個手掌距離',
-      '吐氣時用臀部力量將骨盆往上推高，讓肩膀、髖部、膝蓋呈一直線',
-      '在頂點停留 1 秒感受屁股出力，再慢慢一節一節放回墊上',
-    ],
-    breathingTip: '上推時吐氣收核心（腰不過度拱起），下放時吸氣',
-    quokkaCheer: '躺著也能變強壯！Bobo 坐在妳肚子旁邊幫妳數拍子～',
-    tags: ['躺著做', '改善久坐', '蜜桃臀'],
-  },
-  {
-    id: 'plank_hold',
-    name: '矮袋鼠棒式撐體',
-    subtitle: '全身核心一次啟動，打造穩定緊實小蠻腰',
-    category: 'silent_home',
-    met: 4.0,
-    defaultDurationSec: 45,
-    steps: [
-      '雙手手肘撐在肩膀正下方，前臂平貼墊面',
-      '雙腳往後踩地（若覺得太累也可以膝蓋跪地做溫柔版！）',
-      '收緊小腹與屁股，從頭頂到腳跟呈一直線，不塌腰也不聳肩',
-    ],
-    breathingTip: '千萬別憋氣喔！保持細細長長的均勻深呼吸',
-    quokkaCheer: '撐住撐住～矮袋鼠也在旁邊流汗發抖陪妳，我們超棒！',
-    tags: ['核心緊實', '零噪音', '可跪姿降階'],
-  },
-  {
-    id: 'dead_bug',
-    name: '死蟲式核心交替',
-    subtitle: '物理治療師最愛！完全不傷脖子與腰椎的瘦小腹神動作',
-    category: 'silent_home',
-    met: 3.8,
-    defaultDurationSec: 60,
-    steps: [
-      '平躺後雙手舉向天花板，雙腳抬起屈膝呈 90 度（下背緊貼墊子不留空隙！）',
-      '吐氣時慢慢將「右手＋左腳」往遠處延伸貼近地面，腰部依然貼緊墊子',
-      '吸氣回到中間，換「左手＋右腳」交替延伸',
-    ],
-    breathingTip: '延伸手腳時慢吐氣把肚臍往地板貼，收回時吸氣',
-    quokkaCheer: '這個動作名字可愛又超有效！慢慢做比快快做更厲害喔 🤎',
-    tags: ['零頸椎壓力', '平坦小腹', '護腰首選'],
-  },
-  {
-    id: 'side_leg_raise',
-    name: '站姿側抬腿雕塑',
-    subtitle: '邊聽音樂追劇也能做！溫柔消滅馬鞍肉與水腫',
-    category: 'silent_home',
+    id: 'bye_bye_arm_pulse',
+    name: '4分鐘掰掰袖後推脈衝',
+    subtitle: '精準鎖定手臂後側蝴蝶袖，順便打開滑手機圓肩駝背！',
+    category: 'arm_sculpt',
     met: 3.5,
-    defaultDurationSec: 60,
+    defaultDurationSec: 240,
     steps: [
-      '可單手輕扶牆壁或椅背保持平衡，身體站直不歪斜',
-      '將單側腿往正側方平穩抬起約 30～45 度，腳尖朝前不外翻',
-      '感受屁股側邊微酸後慢慢放下，做一半時間時換另一隻腳！',
+      '上半身微前傾或坐挺，雙手手臂往身體後方延伸打直，掌心朝上或相對',
+      '保持手肘伸直不彎曲，將雙手往後上方小幅度「輕推脈衝」',
+      '每次上推時感受上手臂後側緊緊出力，脖子保持放鬆拉長',
     ],
-    breathingTip: '抬腿時吐氣，慢慢放下時吸氣（中途提示時換腳喔）',
-    quokkaCheer: '線條正在悄悄變順暢～妳的姿態像天鵝一樣優雅 ✨',
-    tags: ['消下半身水腫', '臀側線條', '零負擔'],
+    breathingTip: '往上輕推時吐氣，回放一點點時吸氣，節奏輕快穩定',
+    quokkaCheer: '跟鬆鬆掰掰肉說掰掰！BOBO 在旁邊幫妳數一二一二 🤍',
+    tags: ['4分鐘短練', '專攻蝴蝶袖', '改善圓肩', '免器材'],
+  },
+  {
+    id: 'angel_wings_pull',
+    name: '4分鐘 W 字美背瘦手臂',
+    subtitle: '瘦手臂同時削薄厚背！坐著追劇也能練出少女薄背線條',
+    category: 'arm_sculpt',
+    met: 3.5,
+    defaultDurationSec: 240,
+    steps: [
+      '雙手往上斜舉成 Y 字型，掌心朝前、肩膀放鬆不聳肩',
+      '吐氣時彎曲手肘往下拉到身體兩側，呈現「W 字型」並感受肩胛骨往中間夾緊',
+      '停留 1 秒感受手臂與背部發熱，吸氣再溫柔舉回上方',
+    ],
+    breathingTip: '下拉成 W 字時吐氣開胸，上舉時深吸氣延伸',
+    quokkaCheer: '背變薄整個人看起來就超輕盈～妳的體態越來越好看囉 🤎',
+    tags: ['4分鐘短練', '少女薄背', '手臂線條', '坐床邊可做'],
+  },
+  {
+    id: 'prayer_chest_press',
+    name: '4分鐘合十互推收副乳',
+    subtitle: '雙掌合十溫柔出力，緊實上手臂內側與胸前副乳線條',
+    category: 'arm_sculpt',
+    met: 3.2,
+    defaultDurationSec: 240,
+    steps: [
+      '雙手手掌在胸前合十，手肘抬高至與手腕平行呈水平線',
+      '雙掌用力互相推緊（會感覺胸口與手臂內側立刻收緊！）',
+      '維持互推力道，慢慢將合十雙手往上推高 10 公分再回到胸前',
+    ],
+    breathingTip: '上推時慢吐氣保持掌心貼緊，下放回胸前時吸氣',
+    quokkaCheer: '看起來超優雅的小動作，其實手臂內側超有感對吧 ✨',
+    tags: ['4分鐘短練', '收緊副乳', '手臂內側', '零噪音'],
   },
 
-  // === 2. 餐後溫和消食＆瑜珈伸展 ===
+  // === 2. 🛏️ 床上懶人躺練專區 (洗完澡躺上床直接練，每項簡短 4 分鐘) ===
+  {
+    id: 'bed_air_bike',
+    name: '4分鐘床上空中腳踏車',
+    subtitle: '躺在被窩上就能踩！消下半身水腫、緊實小腹與大腿線條',
+    category: 'bed_workout',
+    met: 4.2,
+    defaultDurationSec: 240,
+    steps: [
+      '舒服平躺在床上（頭下可墊薄枕頭），雙手自然放身體兩側穩定骨盆',
+      '雙腿抬起，像在半空中慢速踩腳踏車一樣輪流往前畫大圈延伸',
+      '下背輕貼床面不懸空，腳尖可交替勾腳與壓腳背幫助小腿消水腫！',
+    ],
+    breathingTip: '自然均勻呼吸不憋氣，慢速畫大圈比亂踢更瘦腿喔',
+    quokkaCheer: '躺著踩單車去棉花糖村郊遊囉～BOBO 坐在枕頭邊陪妳 🤍',
+    tags: ['4分鐘短練', '床上躺練', '瘦腿消水腫', '平坦小腹'],
+  },
+  {
+    id: 'bed_clamshell_leg',
+    name: '4分鐘側躺抬腿瘦馬鞍肉',
+    subtitle: '側躺滑手機也能做！緊實大腿內外側與臀側微笑線',
+    category: 'bed_workout',
+    met: 3.5,
+    defaultDurationSec: 240,
+    steps: [
+      '側躺在床上，單手托頭或躺枕頭，下方腿微彎穩定身體',
+      '上方腿打直，溫柔往天花板方向抬起約 40 度，腳尖朝前不往上翻',
+      '慢慢控制下放不完全貼回，2 分鐘鈴響時翻身換另一邊繼續！',
+    ],
+    breathingTip: '抬腿時吐氣收核心，慢慢放下時吸氣（中途會提醒換邊！）',
+    quokkaCheer: '側躺著也能悄悄變美！翻個身再練 2 分鐘就大功告成囉 🛏️',
+    tags: ['4分鐘短練', '床上側躺', '消馬鞍肉', '追劇神器'],
+  },
+  {
+    id: 'bed_glute_bridge',
+    name: '4分鐘床上躺姿臀橋',
+    subtitle: '躺床就能提臀＋釋放久坐腰痠，睡前做超舒服！',
+    category: 'bed_workout',
+    met: 3.8,
+    defaultDurationSec: 240,
+    steps: [
+      '平躺在床上移開高枕頭，雙膝彎曲踩穩床面，雙腳與髖同寬',
+      '吐氣時用屁股力量將骨盆往上推起，讓肩膀、髖部、膝蓋呈一直線',
+      '在頂點夾緊臀部停留 1～2 秒，再一節一節溫柔放回床面',
+    ],
+    breathingTip: '上推時吐氣收小腹（腰不死命拱高），下放時深吸氣',
+    quokkaCheer: '躺著練出漂亮臀線！做完腰背鬆鬆的超好睡喔 🌙',
+    tags: ['4分鐘短練', '床上躺練', '緊實提臀', '舒緩腰痠'],
+  },
+  {
+    id: 'bed_dead_bug',
+    name: '4分鐘床上死蟲式瘦小腹',
+    subtitle: '完全不傷脖子與腰椎！躺床就能喚醒深層平坦小腹',
+    category: 'bed_workout',
+    met: 3.8,
+    defaultDurationSec: 240,
+    steps: [
+      '平躺床面，雙手舉向天花板，雙腿屈膝抬起呈 90 度',
+      '吐氣時慢慢將「右手＋左腳」往遠處延伸，肚子微收貼穩床面',
+      '吸氣回到中間，換「左手＋右腳」溫柔交替延伸',
+    ],
+    breathingTip: '延伸手腳時慢吐氣把肚臍往床墊收，收回時吸氣',
+    quokkaCheer: '同時動手又動腳～手臂跟小腹一起變緊緻啦 🤎',
+    tags: ['4分鐘短練', '床上躺練', '零頸椎壓力', '瘦小腹'],
+  },
+  {
+    id: 'bed_spinal_twist',
+    name: '4分鐘床上抱膝扭轉舒眠',
+    subtitle: '睡前必做收操！放鬆緊繃腰背、促進腸道咕嚕蠕動',
+    category: 'bed_workout',
+    met: 2.4,
+    defaultDurationSec: 240,
+    steps: [
+      '躺在床上抱住右膝靠近胸口，再輕輕把右膝倒向左側床面',
+      '右手往右側打開平放（順便拉開胸口與手臂內側筋膜！），雙肩放鬆貼床',
+      '深呼吸享受伸展，2 分鐘鈴響時換抱左膝倒向另一邊！',
+    ],
+    breathingTip: '每次長長的吐氣，讓肩膀、手臂與後腰完全融化進床鋪裡',
+    quokkaCheer: '辛苦一整天了～做完這個伸展直接蓋被子睡個香甜好覺吧 🤍',
+    tags: ['4分鐘短練', '床上睡前', '開胸展臂', '助眠消脹氣'],
+  },
+
+  // === 3. 🧘‍♀️ 餐後消食＆居家靜音 (每項簡短 4 分鐘) ===
   {
     id: 'slow_jogging_180',
-    name: '原地超慢跑 (180 BPM)',
-    subtitle: '餐後穩血糖＆燃脂冠軍！微笑不喘、前腳掌輕落地不傷膝',
-    category: 'post_meal_yoga',
+    name: '4分鐘原地超慢跑 (180 BPM)',
+    subtitle: '餐後穩血糖消食王！跟著內建 180 步頻節拍輕鬆跑 4 分鐘',
+    category: 'post_meal_silent',
     met: 6.0,
-    defaultDurationSec: 180,
+    defaultDurationSec: 240,
     hasMetronome180: true,
     steps: [
-      '抬頭看前方、肩膀放鬆，手肘自然彎曲在腰際輕擺',
-      '膝蓋保持微彎有彈性，用「前腳掌」先輕輕著地再落腳跟（聲音越小越好！）',
-      '跟著內建 180 BPM 節拍器「噠、噠、噠、噠」小步快頻率原地輕鬆跑',
+      '抬頭微笑看前方，手肘自然彎曲在腰際輕輕擺動（順便帶動手臂！）',
+      '膝蓋保持微彎彈性，前腳掌先輕著地再落腳跟，安靜不傷膝',
+      '跟著內建 180 BPM 節拍器「噠、噠、噠、噠」跑完短短 4 分鐘就達標！',
     ],
-    breathingTip: '保持能邊跑邊微笑講話的「微笑節奏」，自然呼吸不憋氣',
-    quokkaCheer: '跟著節拍噠噠噠～矮袋鼠跟 Bobo 一左一右陪妳快樂超慢跑！',
-    tags: ['內建180節拍器', '餐後消食王', '高效燃脂不傷膝'],
+    breathingTip: '保持能邊跑邊微笑哼歌的輕鬆節奏，完全不用跑快喔',
+    quokkaCheer: '短短 4 分鐘超快就過了！Quokka 跟 BOBO 陪妳噠噠噠快樂跑 ♪~',
+    tags: ['4分鐘短練', '內建180節拍', '餐後消食王', '高燃脂'],
   },
   {
     id: 'wall_stand',
-    name: '餐後靠牆站立消食',
-    subtitle: '剛吃飽不想動？貼牆站 3 分鐘幫助消化、改善圓肩駝背！',
-    category: 'post_meal_yoga',
-    met: 2.3,
-    defaultDurationSec: 120,
+    name: '4分鐘餐後貼牆開肩消食',
+    subtitle: '剛吃飽不想動首選！貼牆站 4 分鐘助消化、打開圓肩練體態',
+    category: 'post_meal_silent',
+    met: 2.4,
+    defaultDurationSec: 240,
     steps: [
-      '找一面平整牆壁，將腳後跟、小腿肚、屁股、肩胛骨與後腦勺輕貼牆面',
-      '收一點點下巴、肩膀往下放鬆遠離耳朵，腰後留約一隻手掌厚度',
-      '微收小腹溫柔深呼吸，讓剛吃飽的食物舒服消化不囤積',
+      '找一面牆，將腳跟、小腿、屁股、肩胛骨與後腦勺輕貼牆面',
+      '手臂自然貼在身體兩側手背輕靠牆（立刻打開鎖骨與肩頸線條！）',
+      '微收小腹溫柔深呼吸 4 分鐘，讓剛吃飽的食物舒服消化不囤小腹',
     ],
-    breathingTip: '深吸氣感受胸口展開，慢吐氣讓小腹溫柔往內收',
-    quokkaCheer: '剛吃飽站著最舒服了！Bobo 也貼在牆壁上變扁扁麻糬陪妳 🤍',
-    tags: ['剛吃飽首選', '改善體態', '零汗超輕鬆'],
+    breathingTip: '吸氣展開胸口與鎖骨，慢吐氣讓小腹溫柔往內收',
+    quokkaCheer: '只要乖乖貼牆站 4 分鐘就贏過躺著不動囉！妳超棒 ✨',
+    tags: ['4分鐘短練', '剛吃飽首選', '開肩美姿', '零汗超輕鬆'],
+  },
+  {
+    id: 'slow_squat',
+    name: '4分鐘慢速靜音深蹲＋平舉',
+    subtitle: '蹲下時雙手往前平舉延伸，下半身燃脂同時雕塑手臂線條！',
+    category: 'post_meal_silent',
+    met: 5.0,
+    defaultDurationSec: 240,
+    steps: [
+      '雙腳與肩同寬，往後坐隱形小椅子時「雙手同步往前平舉打直」練手臂',
+      '重心踩穩腳後跟、膝蓋對齊腳尖，站起時雙手往身體兩側後壓夾背',
+      '不求快，穩穩呼吸做滿 4 分鐘，全身大肌群一次暖起來！',
+    ],
+    breathingTip: '吸氣往下蹲＋雙手前平舉，吐氣站起＋雙手往後壓',
+    quokkaCheer: '手腳一起動效率翻倍！4 分鐘馬上就完成囉 🔥',
+    tags: ['4分鐘短練', '手腿同練', '靜音零跳躍'],
   },
   {
     id: 'cat_cow',
-    name: '貓牛式脊椎流動',
-    subtitle: '像小貓伸懶腰一樣柔軟背脊、溫柔按摩腸胃助消化',
-    category: 'post_meal_yoga',
-    met: 2.5,
-    defaultDurationSec: 60,
+    name: '4分鐘床上／墊上貓牛式',
+    subtitle: '在床上也能做的柔軟背脊操！順便撐地緊實手臂與肩膀穩定度',
+    category: 'post_meal_silent',
+    met: 2.6,
+    defaultDurationSec: 240,
     steps: [
-      '四足跪姿在墊上，手腕在肩膀正下方，膝蓋在髖部正下方',
-      '【牛式】吸氣時肚臍自然往下沉，胸口打開抬頭往前看',
-      '【貓式】吐氣時雙手推地將背部拱高像貓咪伸懶腰，視線看肚臍',
+      '在瑜珈墊或較穩的床面上呈四足跪姿，雙手推穩在肩膀正下方（手臂打直不鎖死）',
+      '吸氣時肚臍微沉、胸口往前打開抬頭（牛式）',
+      '吐氣時雙手推地把背部拱高像貓咪伸懶腰（貓式），溫柔按摩腸胃',
     ],
-    breathingTip: '吸氣胸口打開（牛式），吐氣拱背放鬆肩頸（貓式）',
-    quokkaCheer: '呼～緊繃了一整天的背跟肩膀，現在通通軟綿綿地鬆開囉 🌿',
-    tags: ['舒緩肩背痠痛', '溫柔助消化', '瑜珈放鬆'],
-  },
-  {
-    id: 'downward_dog',
-    name: '下犬式全身延展',
-    subtitle: '拉長小腿與大腿後側緊繃線條，讓全身氣血順暢循環',
-    category: 'post_meal_yoga',
-    met: 3.0,
-    defaultDurationSec: 60,
-    steps: [
-      '從四足跪姿開始，雙手手指張開穩推墊面，將屁股往天空推高呈倒 V 字型',
-      '膝蓋可以先微彎沒關係！優先讓背部拉直延伸，耳朵在手臂兩側',
-      '可以左右腳跟輪流輕踩地板（像原地踩踏板），溫柔伸展小腿肚',
-    ],
-    breathingTip: '每次吐氣時想像屁股再往斜上方輕輕推遠一點點',
-    quokkaCheer: '小腿緊緊的感覺慢慢化開了對吧～線條會越來越修長喔 ✨',
-    tags: ['拉長腿部線條', '舒緩小腿腫脹', '全身伸展'],
-  },
-  {
-    id: 'spinal_twist',
-    name: '仰臥抱膝扭轉伸展',
-    subtitle: '睡前或運動收操最療癒！溫柔促進腸道蠕動、釋放腰背壓力',
-    category: 'post_meal_yoga',
-    met: 2.3,
-    defaultDurationSec: 60,
-    steps: [
-      '舒服平躺後，抱住右膝靠近胸口，再輕輕將右膝倒向左側地板',
-      '右手往右側打開貼地，頭可輕轉看向右手，雙肩盡量貼地放鬆',
-      '停留深呼吸感受腰背舒展，一半時間提示音響起時換另一邊！',
-    ],
-    breathingTip: '每一次長長的吐氣，都讓肩膀跟腰部更沉入墊子裡放鬆',
-    quokkaCheer: '做完這個動作今晚一定超好睡～給溫柔照顧身體的妳蓋滿分章 🍡',
-    tags: ['腸胃咕嚕操', '運動收操', '睡前療癒'],
+    breathingTip: '吸氣開胸延伸鎖骨，吐氣推地拱背放鬆肩頸',
+    quokkaCheer: '像軟綿綿的小貓咪一樣伸懶腰～背跟手臂都舒展開啦 🌿',
+    tags: ['4分鐘短練', '床上可做', '舒緩肩背', '溫柔助消化'],
   },
 ];
 
@@ -191,85 +225,93 @@ export function getExerciseById(id: string): ExerciseDefinition {
   return EXERCISES.find((e) => e.id === id) || EXERCISES[0];
 }
 
-export type ChallengeIntensity = 'gentle_25' | 'half_50' | 'full_100';
+export type ChallengeIntensity =
+  | 'quick_4min_arm_bed'
+  | 'gentle_25'
+  | 'half_50'
+  | 'full_100';
 
 /**
- * 依據目標消耗卡路里，自動搭配一套「熱身消食 ➜ 靜音燃脂 ➜ 瑜珈放鬆」的流暢組合菜單
+ * 依據使用者偏好：支援「黃金 4 分鐘手部＋床上短組合」或依餐點熱量搭配「每項約 4 分鐘 (240s)」的簡短跟練菜單
  */
 export function buildMealChallengePlaylist(
   mealCalories: number,
   weightKg: number,
   intensity: ChallengeIntensity
 ): { targetCalories: number; items: WorkoutPlaylistItem[] } {
+  if (intensity === 'quick_4min_arm_bed') {
+    // 剛好 4 分鐘（4 個無負擔動作 × 各 60 秒 = 240 秒），結合手部線條＋床上躺練！
+    return {
+      targetCalories: Math.max(18, Math.round(3.8 * Math.max(40, weightKg) * (240 / 3600) * 1.05)),
+      items: [
+        { exerciseId: 'swan_arm_circles', durationSec: 60 },
+        { exerciseId: 'bye_bye_arm_pulse', durationSec: 60 },
+        { exerciseId: 'bed_air_bike', durationSec: 60 },
+        { exerciseId: 'bed_glute_bridge', durationSec: 60 },
+      ],
+    };
+  }
+
   const ratio = intensity === 'gentle_25' ? 0.25 : intensity === 'half_50' ? 0.5 : 1.0;
-  const targetCalories = Math.max(25, Math.round(mealCalories * ratio));
+  const targetCalories = Math.max(20, Math.round(mealCalories * ratio));
 
-  if (targetCalories <= 55) {
-    // 輕巧 2~3 動作微消食組合
-    const jogCal = Math.round(targetCalories * 0.65);
-    const stretchCal = Math.max(8, targetCalories - jogCal);
+  // 將每個動作控制在簡短好堅持的 ~4 分鐘 (180s ~ 240s) 區間！
+  const clampShort4Min = (sec: number) => Math.min(240, Math.max(120, sec));
+
+  if (targetCalories <= 65) {
+    return {
+      targetCalories,
+      items: [
+        { exerciseId: 'swan_arm_circles', durationSec: 240 },
+        { exerciseId: 'bed_air_bike', durationSec: 240 },
+      ],
+    };
+  }
+
+  if (targetCalories <= 150) {
     return {
       targetCalories,
       items: [
         {
           exerciseId: 'slow_jogging_180',
-          durationSec: Math.min(300, calculateSecondsForTargetCalories(6.0, weightKg, jogCal)),
+          durationSec: clampShort4Min(
+            calculateSecondsForTargetCalories(6.0, weightKg, targetCalories * 0.45)
+          ),
         },
         {
-          exerciseId: 'cat_cow',
-          durationSec: Math.min(120, calculateSecondsForTargetCalories(2.5, weightKg, stretchCal)),
+          exerciseId: 'swan_arm_circles',
+          durationSec: 240,
+        },
+        {
+          exerciseId: 'bed_air_bike',
+          durationSec: 240,
         },
       ],
     };
   }
 
-  if (targetCalories <= 160) {
-    // 黃金 4 動作居家靜音＋消食組合（約 8~16 分鐘）
-    const p1 = Math.round(targetCalories * 0.42);
-    const p2 = Math.round(targetCalories * 0.26);
-    const p3 = Math.round(targetCalories * 0.2);
-    const p4 = Math.max(8, targetCalories - p1 - p2 - p3);
-    return {
-      targetCalories,
-      items: [
-        {
-          exerciseId: 'slow_jogging_180',
-          durationSec: calculateSecondsForTargetCalories(6.0, weightKg, p1),
-        },
-        {
-          exerciseId: 'slow_squat',
-          durationSec: calculateSecondsForTargetCalories(5.0, weightKg, p2),
-        },
-        {
-          exerciseId: 'standing_knee_crunch',
-          durationSec: calculateSecondsForTargetCalories(4.5, weightKg, p3),
-        },
-        {
-          exerciseId: 'cat_cow',
-          durationSec: Math.min(120, calculateSecondsForTargetCalories(2.5, weightKg, p4)),
-        },
-      ],
-    };
-  }
-
-  // 高目標燃燒組合（分配到超慢跑、深蹲、提膝收腹、臀橋、棒式、下犬式收操）
-  const blueprint: Array<{ id: string; met: number; share: number; capSec?: number }> = [
-    { id: 'slow_jogging_180', met: 6.0, share: 0.42, capSec: 1200 },
-    { id: 'slow_squat', met: 5.0, share: 0.2, capSec: 360 },
-    { id: 'standing_knee_crunch', met: 4.5, share: 0.16, capSec: 300 },
-    { id: 'glute_bridge', met: 3.8, share: 0.1, capSec: 240 },
-    { id: 'plank_hold', met: 4.0, share: 0.07, capSec: 120 },
-    { id: 'downward_dog', met: 3.0, share: 0.05, capSec: 120 },
+  // 較高目標時拆成多個簡短 4 分鐘動作組合（手部線條＋床上躺練＋超慢跑），絕不出現單一動作超過 4 分鐘！
+  const pool = [
+    'slow_jogging_180',
+    'swan_arm_circles',
+    'bed_air_bike',
+    'bye_bye_arm_pulse',
+    'bed_glute_bridge',
+    'bed_clamshell_leg',
+    'angel_wings_pull',
+    'bed_spinal_twist',
   ];
 
-  return {
-    targetCalories,
-    items: blueprint.map((b) => {
-      const sec = calculateSecondsForTargetCalories(b.met, weightKg, targetCalories * b.share);
-      return {
-        exerciseId: b.id,
-        durationSec: b.capSec ? Math.min(b.capSec, sec) : sec,
-      };
-    }),
-  };
+  const items: WorkoutPlaylistItem[] = [];
+  let accKcal = 0;
+  for (const id of pool) {
+    if (accKcal >= targetCalories && items.length >= 3) break;
+    const def = getExerciseById(id);
+    const dur = 240; // 每個動作固定簡短 4 分鐘！
+    const burn = Math.round(def.met * Math.max(40, weightKg) * (dur / 3600) * 1.05);
+    items.push({ exerciseId: id, durationSec: dur });
+    accKcal += burn;
+  }
+
+  return { targetCalories, items };
 }

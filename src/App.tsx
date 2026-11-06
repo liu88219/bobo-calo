@@ -457,7 +457,7 @@ export const App: React.FC = () => {
               title="個人檔案與 API Key 設定"
             >
               <Settings className="w-4 h-4" />
-              {(!passcode.trim() || !vault.geminiApiKey.trim()) && (
+              {!passcode.trim() && (
                 <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#C83B32] border border-white" />
               )}
             </button>
