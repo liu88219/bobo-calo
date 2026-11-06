@@ -286,9 +286,11 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
 
         {/* Finished Celebration Screen */}
         {phase === 'finished' ? (
-          <div className="text-center py-4 space-y-4">
-            <MascotDuoIllustration mood="proud" className="w-36 h-28 mx-auto" />
-            <MarshmallowStampBadge label="獲得今日烤棉花糖努力印章！" />
+          <div className="text-center py-2 space-y-4">
+            <div className="rounded-2xl bg-[#F3C85F] py-3">
+              <MascotDuoIllustration mood="proud" className="w-44 h-28 mx-auto" />
+            </div>
+            <MarshmallowStampBadge label="成功幫 Quokka & BOBO 疊高一顆棉花糖！" />
             <h3 className="text-2xl font-black text-[#422B1D]">太棒了！跟練挑戰完成 🎉</h3>
             <p className="text-sm leading-relaxed text-[#5C3F2D] bg-[#FFF6E8] p-3.5 rounded-2xl border border-[#ECD4B4]">
               {praiseText}

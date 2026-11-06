@@ -1,31 +1,45 @@
 <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
-  <rect width="128" height="128" rx="30" fill="#FAF4EB"/>
-  <rect x="6" y="6" width="116" height="116" rx="26" fill="#F5E6D3" stroke="#E5CFB3" stroke-width="3"/>
-  <!-- Bobo peeking on right -->
-  <circle cx="88" cy="48" r="9" fill="#FFFDF9" stroke="#422B1D" stroke-width="3.5"/>
-  <circle cx="108" cy="52" r="9" fill="#FFFDF9" stroke="#422B1D" stroke-width="3.5"/>
-  <ellipse cx="96" cy="76" rx="22" ry="24" fill="#FFFDF9" stroke="#422B1D" stroke-width="3.5"/>
-  <circle cx="90" cy="70" r="2.6" fill="#422B1D"/>
-  <circle cx="103" cy="71" r="2.6" fill="#422B1D"/>
-  <ellipse cx="85" cy="75" rx="4" ry="2.5" fill="#F7A9A0" opacity="0.8"/>
-  <ellipse cx="107" cy="76" rx="4" ry="2.5" fill="#F7A9A0" opacity="0.8"/>
-  <path d="M94 75 Q96.5 78 99 75" fill="none" stroke="#422B1D" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- Quokka smiling in front left -->
-  <circle cx="32" cy="42" r="11" fill="#BA7E4D" stroke="#422B1D" stroke-width="3.8"/>
-  <circle cx="32" cy="42" r="5.5" fill="#DFB089"/>
-  <circle cx="68" cy="42" r="11" fill="#BA7E4D" stroke="#422B1D" stroke-width="3.8"/>
-  <circle cx="68" cy="42" r="5.5" fill="#DFB089"/>
-  <ellipse cx="50" cy="73" rx="30" ry="28" fill="#BA7E4D" stroke="#422B1D" stroke-width="3.8"/>
-  <!-- Mint headband -->
-  <path d="M23 58 Q50 50 77 58" fill="none" stroke="#8FBC8B" stroke-width="8" stroke-linecap="round"/>
-  <path d="M23 58 Q50 50 77 58" fill="none" stroke="#422B1D" stroke-width="2.5" stroke-linecap="round"/>
-  <!-- Face -->
-  <circle cx="39" cy="69" r="3.2" fill="#422B1D"/>
-  <circle cx="61" cy="69" r="3.2" fill="#422B1D"/>
-  <ellipse cx="31" cy="76" rx="6" ry="3.8" fill="#F4978E" opacity="0.85"/>
-  <ellipse cx="69" cy="76" rx="6" ry="3.8" fill="#F4978E" opacity="0.85"/>
-  <ellipse cx="50" cy="73" rx="4.5" ry="3.3" fill="#422B1D"/>
-  <path d="M43 78 Q46.5 83 50 77.5 Q53.5 83 57 78" fill="none" stroke="#422B1D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
-  <!-- Cute little sparkle -->
-  <path d="M18 24 L20 30 L26 32 L20 34 L18 40 L16 34 L10 32 L16 30 Z" fill="#F4B860"/>
+  <defs>
+    <filter id="crayon" x="-10%" y="-10%" width="120%" height="120%">
+      <feTurbulence type="fractalNoise" baseFrequency="0.09" numOctaves="3" seed="7" result="noise"/>
+      <feDisplacementMap in="SourceGraphic" in2="noise" scale="2.6" xChannelSelector="R" yChannelSelector="G"/>
+    </filter>
+  </defs>
+  <rect width="128" height="128" rx="28" fill="#F3CA63"/>
+  <g filter="url(#crayon)">
+    <!-- Quokka (left, lineless caramel + red tee + black paws) -->
+    <circle cx="33" cy="34" r="9" fill="#C48B60"/>
+    <circle cx="59" cy="34" r="9" fill="#C48B60"/>
+    <ellipse cx="46" cy="56" rx="22" ry="21" fill="#C48B60"/>
+    <ellipse cx="46" cy="105" rx="19" ry="12" fill="#C48B60"/>
+    <ellipse cx="35" cy="114" rx="7" ry="3.2" fill="#161210"/>
+    <ellipse cx="57" cy="114" rx="7" ry="3.2" fill="#161210"/>
+    <ellipse cx="46" cy="88" rx="23" ry="19" fill="#C83B32"/>
+    <ellipse cx="24" cy="86" rx="6.5" ry="10" transform="rotate(22 24 86)" fill="#C83B32"/>
+    <circle cx="21" cy="93" r="4" fill="#161210"/>
+    <ellipse cx="68" cy="86" rx="6.5" ry="10" transform="rotate(-22 68 86)" fill="#C83B32"/>
+    <circle cx="71" cy="93" r="4" fill="#161210"/>
+
+    <!-- BOBO (right, lineless snow-white gummy bear!) -->
+    <circle cx="82" cy="58" r="6.5" fill="#FFFFFF"/>
+    <circle cx="108" cy="58" r="6.5" fill="#FFFFFF"/>
+    <ellipse cx="95" cy="73" rx="18" ry="15.5" fill="#FFFFFF"/>
+    <ellipse cx="95" cy="96" rx="19" ry="18.5" fill="#FFFFFF"/>
+    <ellipse cx="76" cy="85" rx="7" ry="5" transform="rotate(-25 76 85)" fill="#FFFFFF"/>
+    <ellipse cx="113" cy="83" rx="7" ry="5" transform="rotate(25 113 83)" fill="#FFFFFF"/>
+  </g>
+  <!-- Crisp minimalist facial features -->
+  <ellipse cx="40.5" cy="48" rx="2" ry="2.3" fill="#161210"/>
+  <ellipse cx="51.5" cy="48" rx="2" ry="2.3" fill="#161210"/>
+  <ellipse cx="46" cy="55" rx="3.4" ry="4.5" fill="#161210"/>
+  <ellipse cx="46" cy="64" rx="4.2" ry="3.8" fill="#161210"/>
+  <ellipse cx="46" cy="65.8" rx="2.6" ry="1.5" fill="#E2766A"/>
+
+  <ellipse cx="91" cy="69.5" rx="1.6" ry="1.9" fill="#161210"/>
+  <ellipse cx="99" cy="69.5" rx="1.6" ry="1.9" fill="#161210"/>
+  <ellipse cx="95" cy="73.5" rx="2" ry="1.5" fill="#161210"/>
+  <path d="M95 74.5 L95 77 M90.5 76.5 Q92.8 79.5 95 76.8 Q97.2 79.5 99.5 76.5" fill="none" stroke="#161210" stroke-width="1.6" stroke-linecap="round"/>
+
+  <!-- Cheer lines -->
+  <path d="M112 47 L117 42 M116 53 L122 51 M73 47 L69 42" stroke="#FFF9E6" stroke-width="2.2" stroke-linecap="round"/>
 </svg>

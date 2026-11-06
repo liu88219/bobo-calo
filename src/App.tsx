@@ -420,14 +420,14 @@ export const App: React.FC = () => {
       )}
 
       {/* Header */}
-      <header className="sticky top-0 z-30 bg-[#FAF4EB]/90 backdrop-blur-md border-b border-[#E5CFB3]">
+      <header className="sticky top-0 z-30 bg-[#E8E4DA]/90 backdrop-blur-md border-b border-[#D8D2C5]">
         <div className="max-w-xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-2.5">
             <img src="./favicon.svg" alt="BoboCalo" className="w-9 h-9 rounded-xl shadow-sm" />
             <div>
-              <h1 className="font-black text-base leading-tight text-[#422B1D]">BoboCalo</h1>
-              <p className="text-[11px] text-[#7C5841]">
-                🍡 棉花糖印章 × {vault.stamps.length}
+              <h1 className="font-black text-base leading-tight text-[#2C241E]">BoboCalo</h1>
+              <p className="text-[11px] text-[#6E6459]">
+                Marsh 棉花糖塔 × {vault.stamps.length}
               </p>
             </div>
           </div>
@@ -443,22 +443,22 @@ export const App: React.FC = () => {
                 }
                 void triggerCloudSync(vault, passcode, true, true);
               }}
-              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FFFDF9] border-2 border-[#DFC8AC] text-xs font-bold text-[#5C3F2D] active:scale-95 transition"
+              className="inline-flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#FAF8F3] border border-[#D8D2C5] text-xs font-bold text-[#3D342C] active:scale-95 transition"
               title="立即與雲端對齊最新紀錄"
             >
-              <RefreshCw className={`w-3.5 h-3.5 ${syncBusy ? 'animate-spin text-[#BA7E4D]' : ''}`} />
+              <RefreshCw className={`w-3.5 h-3.5 ${syncBusy ? 'animate-spin text-[#C83B32]' : ''}`} />
               <span>雲端同步</span>
             </button>
 
             <button
               type="button"
               onClick={() => setShowSettingsModal(true)}
-              className="relative p-2 rounded-full bg-[#FFFDF9] border-2 border-[#DFC8AC] text-[#5C3F2D]"
+              className="relative p-2 rounded-full bg-[#FAF8F3] border border-[#D8D2C5] text-[#3D342C]"
               title="個人檔案與 API Key 設定"
             >
               <Settings className="w-4 h-4" />
               {(!passcode.trim() || !vault.geminiApiKey.trim()) && (
-                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#E88D83] border border-white" />
+                <span className="absolute -top-0.5 -right-0.5 w-2.5 h-2.5 rounded-full bg-[#C83B32] border border-white" />
               )}
             </button>
           </div>
@@ -526,85 +526,89 @@ export const App: React.FC = () => {
 
         {activeNav === 'diary' && (
           <>
-            {/* Quokka & Bobo Warm Healing Greeting + Calorie Dashboard */}
-            <div className="doodle-card p-4 space-y-4">
-              <div className="flex items-center gap-3">
+            {/* Signature DINOTAENG Butterscotch Yellow Hero Scene (Quokka + BOBO + Marsh Stack!) */}
+            <div className="doodle-card overflow-hidden">
+              <div className="bg-[#F3C85F] px-4 pt-4 pb-3 flex items-center gap-3">
                 <MascotDuoIllustration
                   mood={burnedKcal > 0 ? 'proud' : dayMeals.length > 0 ? 'eating' : 'greeting'}
-                  className="w-28 h-20 shrink-0"
+                  className="w-40 h-28 shrink-0"
                 />
                 <div className="space-y-1">
-                  <h2 className="font-black text-base text-[#422B1D]">{greeting.title}</h2>
-                  <p className="text-xs text-[#6E503B] leading-relaxed">{greeting.message}</p>
+                  <h2 className="font-black text-base text-[#231B15]">{greeting.title}</h2>
+                  <p className="text-xs text-[#3E3022] leading-relaxed font-medium">
+                    {greeting.message}
+                  </p>
                 </div>
               </div>
 
               {/* Daily Calorie Budget & Exercise Offset */}
-              <div className="rounded-2xl bg-[#FAF4EB] p-3.5 border border-[#E5CFB3] space-y-2.5">
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div>
-                    <div className="text-[11px] text-[#7C5841]">今日已吃</div>
-                    <div className="text-lg font-black text-[#422B1D]">{eatenKcal}</div>
-                    <div className="text-[10px] text-[#9C7E63]">預算 {dailyBudget}</div>
-                  </div>
-                  <div className="border-x border-[#E5CFB3]">
-                    <div className="text-[11px] text-[#7C5841]">運動加分</div>
-                    <div className="text-lg font-black text-[#8FBC8B]">+{burnedKcal}</div>
-                    <div className="text-[10px] text-[#9C7E63]">kcal 消耗</div>
-                  </div>
-                  <div>
-                    <div className="text-[11px] text-[#7C5841]">
-                      {remainingKcal >= 0 ? '安心剩餘額度' : '豐盛幸福能量'}
+              <div className="p-4 space-y-3.5">
+                <div className="rounded-2xl bg-[#EFECE3] p-3.5 space-y-2.5">
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div>
+                      <div className="text-[11px] text-[#6E6459]">今日已吃</div>
+                      <div className="text-lg font-black text-[#2C241E]">{eatenKcal}</div>
+                      <div className="text-[10px] text-[#8A7F72]">預算 {dailyBudget}</div>
                     </div>
-                    <div className="text-lg font-black text-[#BA7E4D]">
-                      {remainingKcal >= 0 ? remainingKcal : `+${Math.abs(remainingKcal)}`}
+                    <div className="border-x border-[#DAD4C6]">
+                      <div className="text-[11px] text-[#6E6459]">運動加分</div>
+                      <div className="text-lg font-black text-[#485F44]">+{burnedKcal}</div>
+                      <div className="text-[10px] text-[#8A7F72]">kcal 消耗</div>
                     </div>
-                    <div className="text-[10px] text-[#9C7E63]">kcal</div>
+                    <div>
+                      <div className="text-[11px] text-[#6E6459]">
+                        {remainingKcal >= 0 ? '安心剩餘額度' : '豐盛幸福能量'}
+                      </div>
+                      <div className="text-lg font-black text-[#C83B32]">
+                        {remainingKcal >= 0 ? remainingKcal : `+${Math.abs(remainingKcal)}`}
+                      </div>
+                      <div className="text-[10px] text-[#8A7F72]">kcal</div>
+                    </div>
                   </div>
-                </div>
 
-                {/* Gentle Progress Bar */}
-                <div className="w-full h-3 rounded-full bg-[#EAD8C0] overflow-hidden">
-                  <div
-                    className="h-full rounded-full bg-gradient-to-r from-[#8FBC8B] via-[#F4B860] to-[#BA7E4D] transition-all duration-500"
-                    style={{ width: `${budgetPct}%` }}
-                  />
-                </div>
+                  {/* Gentle Progress Bar */}
+                  <div className="w-full h-2.5 rounded-full bg-[#DAD4C6] overflow-hidden">
+                    <div
+                      className="h-full rounded-full bg-gradient-to-r from-[#6D8B67] via-[#E5B344] to-[#C83B32] transition-all duration-500"
+                      style={{ width: `${budgetPct}%` }}
+                    />
+                  </div>
 
-                <div className="flex items-center justify-between text-[11px] text-[#7C5841]">
-                  <span>
-                    🥩 蛋白質 {macros.p}g · 🍚 碳水 {macros.c}g · 🥑 脂肪 {macros.f}g
-                  </span>
-                  {vault.stamps.includes(selectedDate) && (
-                    <MarshmallowStampBadge label="今日已蓋章" />
+                  <div className="flex items-center justify-between text-[11px] text-[#6E6459]">
+                    <span>
+                      🥩 蛋白質 {macros.p}g · 🍚 碳水 {macros.c}g · 🥑 脂肪 {macros.f}g
+                    </span>
+                    {vault.stamps.includes(selectedDate) && (
+                      <MarshmallowStampBadge label="今日 Marsh 已疊高" />
+                    )}
+                  </div>
+
+                  {remainingKcal < 0 && (
+                    <div className="p-2.5 rounded-xl bg-[#FAF8F3] text-xs text-[#3D342C] flex items-center justify-between gap-2">
+                      <span>
+                        🤎 今天吃得好滿足沒關係！要不要跟 Quokka ＆ BOBO 一起動個 5 分鐘消化一下呀？
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setActiveNav('workout')}
+                        className="px-2.5 py-1 rounded-lg bg-[#25385B] text-white font-bold shrink-0"
+                      >
+                        去動動
+                      </button>
+                    </div>
                   )}
                 </div>
 
-                {remainingKcal < 0 && (
-                  <div className="p-2.5 rounded-xl bg-[#FFF6E8] border border-[#ECD4B4] text-xs text-[#5C3F2D] flex items-center justify-between gap-2">
-                    <span>
-                      🤎 今天吃得好滿足沒關係！要不要跟矮袋鼠做 5 分鐘超慢跑或伸展消化一下呀？
-                    </span>
-                    <button
-                      type="button"
-                      onClick={() => setActiveNav('workout')}
-                      className="px-2.5 py-1 rounded-lg bg-[#BA7E4D] text-white font-bold shrink-0"
-                    >
-                      去動動
-                    </button>
-                  </div>
-                )}
+                {/* Big Primary CTA in DINOTAENG Vintage Tomato Red */}
+                <button
+                  type="button"
+                  onClick={() => setShowMealModal(true)}
+                  className="w-full py-3.5 rounded-2xl bg-[#C83B32] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2"
+                >
+                  <Camera className="w-5 h-5" />
+                  拍下美食／描述這餐算卡路里 📸
+                </button>
               </div>
-
-              {/* Big Primary CTA: Snap or Describe Meal */}
-              <button
-                type="button"
-                onClick={() => setShowMealModal(true)}
-                className="w-full py-3.5 rounded-2xl bg-[#BA7E4D] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2"
-              >
-                <Camera className="w-5 h-5" />
-                拍下美食／描述這餐算卡路里 📸
-              </button>
             </div>
 
             {/* Water Tracker Card */}
@@ -754,14 +758,18 @@ export const App: React.FC = () => {
 
         {activeNav === 'history' && (
           <div className="space-y-4">
-            <div className="doodle-card p-4 space-y-3 text-center">
-              <MascotDuoIllustration mood="proud" className="w-32 h-24 mx-auto" />
-              <h3 className="font-black text-lg text-[#422B1D]">
-                🍡 烤棉花糖努力印章冊（累計 {vault.stamps.length} 枚）
-              </h3>
-              <p className="text-xs text-[#7C5841]">
-                每一次好好喝水、好好記錄三餐、跟著矮袋鼠動一動，都是溫柔愛自己的證明 🤎
-              </p>
+            <div className="doodle-card overflow-hidden text-center">
+              <div className="bg-[#F3C85F] pt-4 pb-2">
+                <MascotDuoIllustration mood="proud" className="w-44 h-28 mx-auto" />
+              </div>
+              <div className="p-4 space-y-2">
+                <h3 className="font-black text-lg text-[#2C241E]">
+                  Marsh 棉花糖疊疊樂足跡（累計 {vault.stamps.length} 層）
+                </h3>
+                <p className="text-xs text-[#6E6459]">
+                  每一次好好喝水、好好記錄三餐、跟著 Quokka ＆ BOBO 動一動，都在棉花糖村疊高一層幸福 🤍
+                </p>
+              </div>
             </div>
 
             <div className="doodle-card p-4 space-y-2.5">

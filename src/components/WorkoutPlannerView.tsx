@@ -112,14 +112,14 @@ export const WorkoutPlannerView: React.FC<Props> = ({
     <div className="space-y-4">
       {/* Mode Switcher */}
       <div className="doodle-card p-3">
-        <div className="flex rounded-2xl bg-[#FAF4EB] p-1 border border-[#E5CFB3]">
+        <div className="flex rounded-2xl bg-[#EFECE3] p-1">
           <button
             type="button"
             onClick={() => setPlannerMode('combo')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-black transition ${
               plannerMode === 'combo'
-                ? 'bg-[#BA7E4D] text-white shadow-sm'
-                : 'text-[#5C3F2D]'
+                ? 'bg-[#C83B32] text-white shadow-sm'
+                : 'text-[#4A3F35]'
             }`}
           >
             🍱 餐後智慧組合菜單
@@ -129,8 +129,8 @@ export const WorkoutPlannerView: React.FC<Props> = ({
             onClick={() => setPlannerMode('pick')}
             className={`flex-1 py-2.5 rounded-xl text-xs font-black transition ${
               plannerMode === 'pick'
-                ? 'bg-[#8FBC8B] text-white shadow-sm'
-                : 'text-[#5C3F2D]'
+                ? 'bg-[#25385B] text-white shadow-sm'
+                : 'text-[#4A3F35]'
             }`}
           >
             🛒 自由湊單＆動作圖鑑
@@ -282,10 +282,10 @@ export const WorkoutPlannerView: React.FC<Props> = ({
           <button
             type="button"
             onClick={() => onStartPlaylist(autoCombo.items, activeMeal?.id)}
-            className="w-full py-3.5 rounded-2xl bg-[#BA7E4D] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2"
+            className="w-full py-3.5 rounded-2xl bg-[#C83B32] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2"
           >
             <Play className="w-4 h-4 fill-current" />
-            跟著矮袋鼠與 Bobo 開始倒數跟練！
+            跟著 Quokka ＆ BOBO 開始倒數跟練！
           </button>
         </div>
       ) : (
@@ -381,7 +381,7 @@ export const WorkoutPlannerView: React.FC<Props> = ({
               type="button"
               disabled={cart.length === 0}
               onClick={() => onStartPlaylist(cart)}
-              className="w-full py-3 rounded-2xl bg-[#8FBC8B] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2 disabled:opacity-50"
+              className="w-full py-3 rounded-2xl bg-[#25385B] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2 disabled:opacity-50"
             >
               <Play className="w-4 h-4 fill-current" />
               開始執行我的湊單跟練（{formatDurationLabel(cartStats.totalSec)}）
@@ -452,14 +452,14 @@ export const WorkoutPlannerView: React.FC<Props> = ({
                           { exerciseId: ex.id, durationSec: ex.defaultDurationSec },
                         ])
                       }
-                      className="flex-1 py-2 rounded-xl bg-[#FAF4EB] border border-[#422B1D] text-xs font-bold text-[#422B1D] flex items-center justify-center gap-1"
+                      className="flex-1 py-2 rounded-xl bg-[#EFECE3] text-xs font-bold text-[#2C241E] flex items-center justify-center gap-1"
                     >
                       <Play className="w-3.5 h-3.5 fill-current" /> 單項跟練
                     </button>
                     <button
                       type="button"
                       onClick={() => addToCart(ex.id, ex.defaultDurationSec)}
-                      className="flex-1 py-2 rounded-xl bg-[#F4B860] border border-[#422B1D] text-xs font-black text-[#422B1D] flex items-center justify-center gap-1"
+                      className="flex-1 py-2 rounded-xl bg-[#F3C85F] text-xs font-black text-[#2C241E] flex items-center justify-center gap-1"
                     >
                       <Plus className="w-3.5 h-3.5" /> 加入湊單
                     </button>
