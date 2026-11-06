@@ -1,0 +1,31 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 128 128">
+  <rect width="128" height="128" rx="30" fill="#FAF4EB"/>
+  <rect x="6" y="6" width="116" height="116" rx="26" fill="#F5E6D3" stroke="#E5CFB3" stroke-width="3"/>
+  <!-- Bobo peeking on right -->
+  <circle cx="88" cy="48" r="9" fill="#FFFDF9" stroke="#422B1D" stroke-width="3.5"/>
+  <circle cx="108" cy="52" r="9" fill="#FFFDF9" stroke="#422B1D" stroke-width="3.5"/>
+  <ellipse cx="96" cy="76" rx="22" ry="24" fill="#FFFDF9" stroke="#422B1D" stroke-width="3.5"/>
+  <circle cx="90" cy="70" r="2.6" fill="#422B1D"/>
+  <circle cx="103" cy="71" r="2.6" fill="#422B1D"/>
+  <ellipse cx="85" cy="75" rx="4" ry="2.5" fill="#F7A9A0" opacity="0.8"/>
+  <ellipse cx="107" cy="76" rx="4" ry="2.5" fill="#F7A9A0" opacity="0.8"/>
+  <path d="M94 75 Q96.5 78 99 75" fill="none" stroke="#422B1D" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Quokka smiling in front left -->
+  <circle cx="32" cy="42" r="11" fill="#BA7E4D" stroke="#422B1D" stroke-width="3.8"/>
+  <circle cx="32" cy="42" r="5.5" fill="#DFB089"/>
+  <circle cx="68" cy="42" r="11" fill="#BA7E4D" stroke="#422B1D" stroke-width="3.8"/>
+  <circle cx="68" cy="42" r="5.5" fill="#DFB089"/>
+  <ellipse cx="50" cy="73" rx="30" ry="28" fill="#BA7E4D" stroke="#422B1D" stroke-width="3.8"/>
+  <!-- Mint headband -->
+  <path d="M23 58 Q50 50 77 58" fill="none" stroke="#8FBC8B" stroke-width="8" stroke-linecap="round"/>
+  <path d="M23 58 Q50 50 77 58" fill="none" stroke="#422B1D" stroke-width="2.5" stroke-linecap="round"/>
+  <!-- Face -->
+  <circle cx="39" cy="69" r="3.2" fill="#422B1D"/>
+  <circle cx="61" cy="69" r="3.2" fill="#422B1D"/>
+  <ellipse cx="31" cy="76" rx="6" ry="3.8" fill="#F4978E" opacity="0.85"/>
+  <ellipse cx="69" cy="76" rx="6" ry="3.8" fill="#F4978E" opacity="0.85"/>
+  <ellipse cx="50" cy="73" rx="4.5" ry="3.3" fill="#422B1D"/>
+  <path d="M43 78 Q46.5 83 50 77.5 Q53.5 83 57 78" fill="none" stroke="#422B1D" stroke-width="3" stroke-linecap="round" stroke-linejoin="round"/>
+  <!-- Cute little sparkle -->
+  <path d="M18 24 L20 30 L26 32 L20 34 L18 40 L16 34 L10 32 L16 30 Z" fill="#F4B860"/>
+</svg>

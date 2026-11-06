@@ -1,0 +1,121 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  color-scheme: light;
+}
+
+body {
+  background-color: #FAF4EB;
+  background-image: radial-gradient(#E8D6BE 1.1px, transparent 1.1px);
+  background-size: 22px 22px;
+  color: #422B1D;
+  -webkit-tap-highlight-color: transparent;
+  padding-bottom: env(safe-area-inset-bottom);
+}
+
+/* Hand-drawn warm card look */
+.doodle-card {
+  background: #FFFDF9;
+  border: 2.5px solid #DFC8AC;
+  border-radius: 1.5rem;
+  box-shadow: 0 5px 0 #EAD8C0;
+}
+
+.doodle-btn {
+  border: 2px solid #422B1D;
+  box-shadow: 0 3px 0 #422B1D;
+  transition: transform 0.12s ease, box-shadow 0.12s ease;
+}
+
+.doodle-btn:active {
+  transform: translateY(2px);
+  box-shadow: 0 1px 0 #422B1D;
+}
+
+/* Smooth Exercise Animations for Quokka & Bobo */
+@keyframes quokkaSquat {
+  0%, 100% { transform: translateY(0px) scaleY(1); }
+  50% { transform: translateY(18px) scaleY(0.92) scaleX(1.04); }
+}
+
+@keyframes quokkaShadowScale {
+  0%, 100% { transform: scaleX(1); opacity: 0.25; }
+  50% { transform: scaleX(1.2); opacity: 0.4; }
+}
+
+@keyframes boboCheerBounce {
+  0%, 100% { transform: translateY(0px) rotate(-2deg); }
+  50% { transform: translateY(-9px) rotate(3deg); }
+}
+
+@keyframes plankHoldPulse {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-3px); }
+}
+
+@keyframes bridgeHipLift {
+  0%, 100% { transform: translateY(10px) rotate(0deg); }
+  50% { transform: translateY(-10px) rotate(-6deg); }
+}
+
+@keyframes deadBugLegLeft {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-38deg); }
+}
+
+@keyframes deadBugLegRight {
+  0%, 100% { transform: rotate(-38deg); }
+  50% { transform: rotate(0deg); }
+}
+
+@keyframes sideLegLift {
+  0%, 100% { transform: rotate(0deg); }
+  50% { transform: rotate(-36deg); }
+}
+
+@keyframes kneeCrunchLift {
+  0%, 100% { transform: translateY(0px) rotate(0deg); }
+  50% { transform: translateY(-16px) rotate(18deg); }
+}
+
+@keyframes slowJogBounce {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-7px); }
+}
+
+@keyframes catCowSpine {
+  0%, 100% { transform: scaleY(1) translateY(0px); }
+  50% { transform: scaleY(0.88) translateY(5px); }
+}
+
+@keyframes gentleBreathe {
+  0%, 100% { transform: scale(1); }
+  50% { transform: scale(1.035); }
+}
+
+@keyframes waterWaveMove {
+  0% { transform: translateX(0); }
+  100% { transform: translateX(-50%); }
+}
+
+@keyframes floatBob {
+  0%, 100% { transform: translateY(0px) rotate(-2deg); }
+  50% { transform: translateY(-5px) rotate(2deg); }
+}
+
+.anim-squat { animation: quokkaSquat 2.2s ease-in-out infinite; transform-origin: center bottom; }
+.anim-shadow { animation: quokkaShadowScale 2.2s ease-in-out infinite; transform-origin: center; }
+.anim-bobo-cheer { animation: boboCheerBounce 1.1s ease-in-out infinite; transform-origin: center bottom; }
+.anim-plank { animation: plankHoldPulse 1.6s ease-in-out infinite; }
+.anim-bridge { animation: bridgeHipLift 2.6s ease-in-out infinite; transform-origin: left center; }
+.anim-deadbug-l { animation: deadBugLegLeft 2.4s ease-in-out infinite; transform-origin: 120px 135px; }
+.anim-deadbug-r { animation: deadBugLegRight 2.4s ease-in-out infinite; transform-origin: 132px 135px; }
+.anim-side-leg { animation: sideLegLift 2.0s ease-in-out infinite; transform-origin: 118px 132px; }
+.anim-knee-crunch { animation: kneeCrunchLift 1.5s ease-in-out infinite; transform-origin: 115px 128px; }
+.anim-slow-jog { animation: slowJogBounce 0.333s ease-in-out infinite; }
+.anim-cat-cow { animation: catCowSpine 3.2s ease-in-out infinite; transform-origin: center; }
+.anim-breathe { animation: gentleBreathe 3.2s ease-in-out infinite; transform-origin: center; }
+.anim-water-wave { animation: waterWaveMove 5s linear infinite; }
+.anim-float-bob { animation: floatBob 2.8s ease-in-out infinite; }
