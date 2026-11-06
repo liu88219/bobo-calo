@@ -31,15 +31,16 @@ export const WorkoutPlannerView: React.FC<Props> = ({
   const [selectedMealId, setSelectedMealId] = useState<string>(
     initialFocusMeal?.id || todayMeals[0]?.id || 'custom'
   );
-  const [customMealKcal, setCustomMealKcal] = useState<number>(500);
+  const [customMealKcalInput, setCustomMealKcalInput] = useState<string>('500');
   const [intensity, setIntensity] = useState<ChallengeIntensity>(
     initialFocusMeal ? 'gentle_25' : 'quick_4min_arm_bed'
   );
 
   // Mode 2: Pick & Mix Cart (default 4-min exercises!)
-  const [pickTargetKcal, setPickTargetKcal] = useState<number>(
-    initialFocusMeal ? Math.max(40, Math.round(initialFocusMeal.totalCalories * 0.25)) : 60
+  const [pickTargetKcalInput, setPickTargetKcalInput] = useState<string>(() =>
+    String(initialFocusMeal ? Math.max(40, Math.round(initialFocusMeal.totalCalories * 0.25)) : 60)
   );
+  const pickTargetKcal = Math.max(10, Number.parseInt(pickTargetKcalInput, 10) || 60);
   const [filterCat, setFilterCat] = useState<'all' | ExerciseCategory>('all');
   const [cart, setCart] = useState<WorkoutPlaylistItem[]>([
     { exerciseId: 'swan_arm_circles', durationSec: 240 },
@@ -51,7 +52,8 @@ export const WorkoutPlannerView: React.FC<Props> = ({
     [todayMeals, selectedMealId]
   );
 
-  const baseMealCalories = activeMeal ? activeMeal.totalCalories : Math.max(50, customMealKcal || 400);
+  const customMealKcal = Number.parseInt(customMealKcalInput, 10) || 400;
+  const baseMealCalories = activeMeal ? activeMeal.totalCalories : Math.max(50, customMealKcal);
 
   const autoCombo = useMemo(
     () => buildMealChallengePlaylist(baseMealCalories, weightKg, intensity),
@@ -228,9 +230,11 @@ export const WorkoutPlannerView: React.FC<Props> = ({
                 <div className="flex items-center gap-2 pt-1">
                   <span className="text-xs text-[#6E6459]">輸入這餐熱量：</span>
                   <input
-                    type="number"
-                    value={customMealKcal}
-                    onChange={(e) => setCustomMealKcal(Number(e.target.value))}
+                    type="text"
+                    inputMode="numeric"
+                    placeholder="500"
+                    value={customMealKcalInput}
+                    onChange={(e) => setCustomMealKcalInput(e.target.value.replace(/[^0-9]/g, ''))}
                     className="w-24 px-3 py-1.5 rounded-xl border border-[#D8D2C5] bg-white text-sm font-black text-[#C83B32]"
                   />
                   <span className="text-xs text-[#6E6459]">kcal</span>
@@ -308,9 +312,11 @@ export const WorkoutPlannerView: React.FC<Props> = ({
               <div className="flex items-center gap-1.5">
                 <span className="text-xs text-[#6E6459]">目標</span>
                 <input
-                  type="number"
-                  value={pickTargetKcal}
-                  onChange={(e) => setPickTargetKcal(Math.max(10, Number(e.target.value)))}
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="60"
+                  value={pickTargetKcalInput}
+                  onChange={(e) => setPickTargetKcalInput(e.target.value.replace(/[^0-9]/g, ''))}
                   className="w-16 px-2 py-1 rounded-xl border border-[#D8D2C5] bg-white text-xs font-black text-center text-[#C83B32]"
                 />
                 <span className="text-xs text-[#6E6459]">kcal</span>

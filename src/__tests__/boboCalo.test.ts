@@ -7,6 +7,8 @@ import {
 import {
   mergeVaultStates,
   buildTextDbFormBody,
+  loadLocalVaultSync,
+  saveLocalVaultState,
 } from '../services/cloudSync';
 import {
   createInitialVaultState,
@@ -221,5 +223,50 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     expect(merged.meals[0].title).toBe('香煎板豆腐便當');
     expect(merged.meals[0].totalCalories).toBe(180);
     expect(merged.meals[0].photoThumb).toBe('data:image/jpeg;base64,thumbdata');
+  });
+
+  it('guards localStorage against accidental blank overwrite and recovers from rolling non-empty snapshot', async () => {
+    const mem = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => mem.get(k) ?? null,
+      setItem: (k: string, v: string) => mem.set(k, v),
+      removeItem: (k: string) => mem.delete(k),
+    });
+
+    const active = createInitialVaultState();
+    active.isUneditedDefault = false;
+    active.updatedAt = 12345;
+    active.profile.weightKg = 49.5;
+    active.meals = [
+      {
+        id: 'meal-today-1',
+        dateKey: '2026-11-06',
+        category: 'lunch',
+        title: '健康雞胸餐盒',
+        items: [{ id: 'i1', name: '舒肥雞胸', portion: '1份', calories: 220, proteinG: 35, carbsG: 2, fatG: 5 }],
+        totalCalories: 220,
+        proteinG: 35,
+        carbsG: 2,
+        fatG: 5,
+        praise: '超棒！',
+        createdAt: 12345,
+        updatedAt: 12345,
+      },
+    ];
+
+    await saveLocalVaultState(active);
+    // Attempting to save an unedited blank default state must NEVER wipe existing records
+    await saveLocalVaultState(createInitialVaultState());
+
+    const loaded = loadLocalVaultSync();
+    expect(loaded.meals).toHaveLength(1);
+    expect(loaded.meals[0].title).toBe('健康雞胸餐盒');
+    expect(loaded.profile.weightKg).toBe(49.5);
+
+    // Even if primary key were accidentally cleared, rolling non-empty snapshot restores it
+    mem.delete('bobocalo_state_v1');
+    const recovered = loadLocalVaultSync();
+    expect(recovered.meals).toHaveLength(1);
+    expect(recovered.meals[0].id).toBe('meal-today-1');
   });
 });

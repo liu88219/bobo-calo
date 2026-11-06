@@ -4,6 +4,7 @@ import {
   WorkoutLog,
   WaterLog,
   createInitialVaultState,
+  getLocalDateKey,
 } from '../types/tracker';
 import {
   deriveVaultIdentity,
@@ -13,9 +14,12 @@ import {
 } from './cryptoVault';
 
 const LOCAL_STATE_KEY = 'bobocalo_state_v1';
+const LAST_NONEMPTY_STATE_KEY = 'bobocalo_last_nonempty_v1';
 const LOCAL_PASSCODE_KEY = 'bobocalo_saved_passcode_v1';
+
 const TEXTDB_UPDATE_URL = 'https://api.textdb.online/update/';
 const TEXTDB_READ_URL = 'https://textdb.online';
+const TEXTDB_DEV_API_URL = 'https://textdb.dev/api/data';
 const NTFY_BASE_URL = 'https://ntfy.sh';
 
 const IDB_NAME = 'BoboCaloDB';
@@ -23,6 +27,7 @@ const IDB_KV_STORE = 'kv';
 const IDB_PHOTO_STORE = 'meal_photos';
 const IDB_STATE_KEY = 'vault_state_v1';
 const IDB_PASS_KEY = 'saved_passcode_v1';
+const IDB_TIMEOUT_MS = 1500;
 
 /**
  * 申請瀏覽器永久儲存權限，避免 iOS / 行動瀏覽器自動回收空間
@@ -30,16 +35,47 @@ const IDB_PASS_KEY = 'saved_passcode_v1';
 export async function requestPersistentStorage(): Promise<void> {
   try {
     if (typeof navigator !== 'undefined' && navigator.storage?.persist) {
-      await navigator.storage.persist();
+      await Promise.race([
+        navigator.storage.persist(),
+        new Promise<void>((resolve) => setTimeout(resolve, 1000)),
+      ]);
     }
   } catch {
     // Ignore unsupported environments
   }
 }
 
+function withIdbTimeout<T>(promise: Promise<T>, fallback: T): Promise<T> {
+  return new Promise<T>((resolve) => {
+    let settled = false;
+    const timer = setTimeout(() => {
+      if (!settled) {
+        settled = true;
+        resolve(fallback);
+      }
+    }, IDB_TIMEOUT_MS);
+
+    promise
+      .then((val) => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(val);
+        }
+      })
+      .catch(() => {
+        if (!settled) {
+          settled = true;
+          clearTimeout(timer);
+          resolve(fallback);
+        }
+      });
+  });
+}
+
 function openIdb(): Promise<IDBDatabase | null> {
   if (typeof indexedDB === 'undefined') return Promise.resolve(null);
-  return new Promise((resolve) => {
+  const rawPromise = new Promise<IDBDatabase | null>((resolve) => {
     try {
       const req = indexedDB.open(IDB_NAME, 1);
       req.onupgradeneeded = () => {
@@ -53,16 +89,18 @@ function openIdb(): Promise<IDBDatabase | null> {
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => resolve(null);
+      req.onblocked = () => resolve(null);
     } catch {
       resolve(null);
     }
   });
+  return withIdbTimeout(rawPromise, null);
 }
 
 async function idbPut(storeName: string, key: string, value: string): Promise<void> {
   const db = await openIdb();
   if (!db) return;
-  return new Promise((resolve) => {
+  const op = new Promise<void>((resolve) => {
     try {
       const tx = db.transaction(storeName, 'readwrite');
       tx.objectStore(storeName).put(value, key);
@@ -74,17 +112,22 @@ async function idbPut(storeName: string, key: string, value: string): Promise<vo
         db.close();
         resolve();
       };
+      tx.onabort = () => {
+        db.close();
+        resolve();
+      };
     } catch {
       db.close();
       resolve();
     }
   });
+  await withIdbTimeout(op, undefined);
 }
 
 async function idbGet(storeName: string, key: string): Promise<string | null> {
   const db = await openIdb();
   if (!db) return null;
-  return new Promise((resolve) => {
+  const op = new Promise<string | null>((resolve) => {
     try {
       const tx = db.transaction(storeName, 'readonly');
       const req = tx.objectStore(storeName).get(key);
@@ -101,6 +144,39 @@ async function idbGet(storeName: string, key: string): Promise<string | null> {
       resolve(null);
     }
   });
+  return withIdbTimeout(op, null);
+}
+
+async function idbGetAllKeys(storeName: string): Promise<string[]> {
+  const db = await openIdb();
+  if (!db) return [];
+  const op = new Promise<string[]>((resolve) => {
+    try {
+      const tx = db.transaction(storeName, 'readonly');
+      const store = tx.objectStore(storeName);
+      if (typeof store.getAllKeys !== 'function') {
+        db.close();
+        resolve([]);
+        return;
+      }
+      const req = store.getAllKeys();
+      req.onsuccess = () => {
+        db.close();
+        const list = Array.isArray(req.result)
+          ? req.result.map((k) => String(k))
+          : [];
+        resolve(list);
+      };
+      req.onerror = () => {
+        db.close();
+        resolve([]);
+      };
+    } catch {
+      db.close();
+      resolve([]);
+    }
+  });
+  return withIdbTimeout(op, []);
 }
 
 export async function saveLocalHiResPhoto(mealId: string, dataUrl: string): Promise<void> {
@@ -111,39 +187,11 @@ export async function getLocalHiResPhoto(mealId: string): Promise<string | null>
   return idbGet(IDB_PHOTO_STORE, mealId);
 }
 
-export async function saveLocalVaultState(state: VaultState): Promise<void> {
-  const raw = JSON.stringify(state);
-  try {
-    localStorage.setItem(LOCAL_STATE_KEY, raw);
-  } catch {
-    // Quota or private mode fallback to IndexedDB
-  }
-  await idbPut(IDB_KV_STORE, IDB_STATE_KEY, raw);
-}
-
-export async function loadLocalVaultState(): Promise<VaultState> {
-  let raw: string | null = null;
-  try {
-    raw = localStorage.getItem(LOCAL_STATE_KEY);
-  } catch {
-    raw = null;
-  }
-  if (!raw) {
-    // 若 localStorage 被內建瀏覽器清空，自動從 IndexedDB 無縫救回
-    raw = await idbGet(IDB_KV_STORE, IDB_STATE_KEY);
-    if (raw) {
-      try {
-        localStorage.setItem(LOCAL_STATE_KEY, raw);
-      } catch {
-        // Ignore
-      }
-    }
-  }
-  if (!raw) {
-    return createInitialVaultState();
-  }
+function parseVaultJson(raw: string | null | undefined): VaultState | null {
+  if (!raw) return null;
   try {
     const parsed = JSON.parse(raw) as Partial<VaultState>;
+    if (!parsed || typeof parsed !== 'object') return null;
     const base = createInitialVaultState();
     return {
       ...base,
@@ -156,8 +204,137 @@ export async function loadLocalVaultState(): Promise<VaultState> {
       deletedIds: parsed.deletedIds || {},
     };
   } catch {
-    return createInitialVaultState();
+    return null;
   }
+}
+
+function hasUserRecords(state: VaultState): boolean {
+  return state.meals.length > 0 || state.waters.length > 0 || state.workouts.length > 0;
+}
+
+/**
+ * 第 0 幀同步讀取本機狀態：避免 React 初次渲染出現空白預設值或因 iOS IndexedDB 延遲而誤覆蓋本機紀錄！
+ */
+export function loadLocalVaultSync(): VaultState {
+  let primary: VaultState | null = null;
+  let backup: VaultState | null = null;
+  try {
+    primary = parseVaultJson(localStorage.getItem(LOCAL_STATE_KEY));
+  } catch {
+    primary = null;
+  }
+  try {
+    backup = parseVaultJson(localStorage.getItem(LAST_NONEMPTY_STATE_KEY));
+  } catch {
+    backup = null;
+  }
+
+  if (primary && backup) {
+    return mergeVaultStates(primary, backup);
+  }
+  return primary || backup || createInitialVaultState();
+}
+
+export function loadRememberedPasscodeSync(): string {
+  try {
+    return normalizePasscode(localStorage.getItem(LOCAL_PASSCODE_KEY) || '');
+  } catch {
+    return '';
+  }
+}
+
+export async function saveLocalVaultState(state: VaultState): Promise<void> {
+  // 防護：絕不讓未編輯的空白預設狀態覆蓋已經有資料的本機儲存！
+  if (state.isUneditedDefault && !hasUserRecords(state)) {
+    const existing = loadLocalVaultSync();
+    if (!existing.isUneditedDefault || hasUserRecords(existing)) {
+      return;
+    }
+  }
+
+  const raw = JSON.stringify(state);
+  try {
+    localStorage.setItem(LOCAL_STATE_KEY, raw);
+    if (hasUserRecords(state)) {
+      localStorage.setItem(LAST_NONEMPTY_STATE_KEY, raw);
+    }
+  } catch {
+    // Quota or private mode fallback to IndexedDB
+  }
+  await idbPut(IDB_KV_STORE, IDB_STATE_KEY, raw);
+}
+
+/**
+ * 完整非同步本機載入：合併 localStorage + 防誤刪快照 + IndexedDB 鏡像，並自動救回任何殘留在 IndexedDB 照片庫的未刪除餐點！
+ */
+export async function loadLocalVaultState(): Promise<VaultState> {
+  let merged = loadLocalVaultSync();
+
+  const idbRaw = await idbGet(IDB_KV_STORE, IDB_STATE_KEY);
+  const idbState = parseVaultJson(idbRaw);
+  if (idbState) {
+    merged = mergeVaultStates(merged, idbState);
+  }
+
+  // 若先前因競態導致餐點清單遺失，但 IndexedDB meal_photos 仍保有使用者拍下的美食照片（且未曾被按刪除），自動救回！
+  const photoKeys = await idbGetAllKeys(IDB_PHOTO_STORE);
+  let recoveredAny = false;
+  for (const key of photoKeys) {
+    if (!key.startsWith('meal-')) continue;
+    const alreadyInMeals = merged.meals.some((m) => m.id === key);
+    const wasDeleted = Boolean(merged.deletedIds[key]);
+    if (alreadyInMeals || wasDeleted) continue;
+
+    const tsMatch = /^meal-(\d{10,15})-/.exec(key);
+    const createdAt = tsMatch ? Number(tsMatch[1]) : Date.now();
+    const dateKey = getLocalDateKey(new Date(createdAt));
+    const recoveredMeal: MealLog = {
+      id: key,
+      dateKey,
+      category: 'lunch',
+      title: '📸 自動救回的餐點照片（可點編輯重算）',
+      items: [
+        {
+          id: `rec-item-${createdAt}`,
+          name: '已救回美食照片（點下方「編輯／重算」即可重新辨識）',
+          portion: '1份',
+          calories: 0,
+          proteinG: 0,
+          carbsG: 0,
+          fatG: 0,
+        },
+      ],
+      totalCalories: 0,
+      proteinG: 0,
+      carbsG: 0,
+      fatG: 0,
+      hasLocalHiResPhoto: true,
+      praise: 'Bobo 幫妳把本機相簿裡的美食紀錄找回來囉！點「編輯／重算」就能一鍵重算卡路里 🤎',
+      createdAt,
+      updatedAt: createdAt,
+    };
+    merged = {
+      ...merged,
+      isUneditedDefault: false,
+      updatedAt: Math.max(merged.updatedAt || 0, createdAt),
+      meals: [recoveredMeal, ...merged.meals].sort((a, b) => b.createdAt - a.createdAt),
+    };
+    recoveredAny = true;
+  }
+
+  if (!merged.isUneditedDefault || recoveredAny) {
+    try {
+      const raw = JSON.stringify(merged);
+      localStorage.setItem(LOCAL_STATE_KEY, raw);
+      if (hasUserRecords(merged)) {
+        localStorage.setItem(LAST_NONEMPTY_STATE_KEY, raw);
+      }
+    } catch {
+      // Ignore
+    }
+  }
+
+  return merged;
 }
 
 export async function saveRememberedPasscode(passcode: string): Promise<void> {
@@ -175,12 +352,7 @@ export async function saveRememberedPasscode(passcode: string): Promise<void> {
 }
 
 export async function loadRememberedPasscode(): Promise<string> {
-  let saved = '';
-  try {
-    saved = localStorage.getItem(LOCAL_PASSCODE_KEY) || '';
-  } catch {
-    saved = '';
-  }
+  let saved = loadRememberedPasscodeSync();
   if (!saved) {
     saved = (await idbGet(IDB_KV_STORE, IDB_PASS_KEY)) || '';
     if (saved) {
@@ -261,7 +433,13 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
 
   const maxUpdatedAt = Math.max(local.updatedAt || 0, remote.updatedAt || 0);
   const maxSettingsAt = Math.max(local.settingsUpdatedAt || 0, remote.settingsUpdatedAt || 0);
-  const hasAnyEdit = !local.isUneditedDefault || !remote.isUneditedDefault || maxUpdatedAt > 0;
+  const hasAnyEdit =
+    !local.isUneditedDefault ||
+    !remote.isUneditedDefault ||
+    maxUpdatedAt > 0 ||
+    mergedMeals.length > 0 ||
+    mergedWaters.length > 0 ||
+    mergedWorkouts.length > 0;
 
   return {
     version: 1,
@@ -279,7 +457,7 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
 }
 
 /**
- * 控制上傳雲端前的照片縮圖體積（僅保留最近 20 筆餐點的迷你縮圖，確保 textdb 永遠輕量秒傳）
+ * 控制上傳雲端前的照片縮圖體積（僅保留最近 20 筆餐點的迷你縮圖，確保雲端永遠輕量秒傳）
  */
 export function compactStateForCloud(state: VaultState): VaultState {
   const meals = state.meals.map((m, idx) => {
@@ -297,30 +475,114 @@ export function buildTextDbFormBody(key: string, value: string): string {
   return new URLSearchParams({ key, value }).toString();
 }
 
-export async function writePermanentCloud(key: string, encryptedValue: string): Promise<boolean> {
+async function writeTextDbOnline(key: string, encryptedValue: string): Promise<boolean> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7500) : null;
   try {
     const body = buildTextDbFormBody(key, encryptedValue);
-    const res = await fetch(TEXTDB_UPDATE_URL, {
+    const init: RequestInit = {
       method: 'POST',
       headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
       body,
-    });
+      signal: ctrl?.signal,
+    };
+    if (body.length < 55000) {
+      init.keepalive = true;
+    }
+    const res = await fetch(TEXTDB_UPDATE_URL, init);
     return res.ok;
   } catch {
     return false;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
 }
 
-export async function readPermanentCloud(key: string): Promise<string | null> {
+async function writeTextDbDev(key: string, encryptedValue: string): Promise<boolean> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 7500) : null;
+  try {
+    const bodyStr = JSON.stringify({ payload: encryptedValue });
+    const init: RequestInit = {
+      method: 'POST',
+      // textdb.dev 嚴格要求 Content-Type: application/json
+      headers: { 'Content-Type': 'application/json' },
+      body: bodyStr,
+      signal: ctrl?.signal,
+    };
+    if (bodyStr.length < 55000) {
+      init.keepalive = true;
+    }
+    const res = await fetch(`${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}`, init);
+    return res.ok;
+  } catch {
+    return false;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function writePermanentCloud(key: string, encryptedValue: string): Promise<boolean> {
+  const [okOnline, okDev] = await Promise.all([
+    writeTextDbOnline(key, encryptedValue),
+    writeTextDbDev(key, encryptedValue),
+  ]);
+  return okOnline || okDev;
+}
+
+async function readTextDbOnline(key: string): Promise<string | null> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 6500) : null;
   try {
     const url = `${TEXTDB_READ_URL}/${encodeURIComponent(key)}?t=${Date.now()}`;
-    const res = await fetch(url, { cache: 'no-store' });
+    const res = await fetch(url, { cache: 'no-store', signal: ctrl?.signal });
     if (!res.ok) return null;
     const text = (await res.text()).trim();
     return text || null;
   } catch {
     return null;
+  } finally {
+    if (timer) clearTimeout(timer);
   }
+}
+
+async function readTextDbDev(key: string): Promise<string | null> {
+  const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+  const timer = ctrl ? setTimeout(() => ctrl.abort(), 6500) : null;
+  try {
+    const url = `${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}?t=${Date.now()}`;
+    const res = await fetch(url, { cache: 'no-store', signal: ctrl?.signal });
+    if (!res.ok) return null;
+    const text = (await res.text()).trim();
+    if (!text) return null;
+    let parsed: unknown = JSON.parse(text);
+    if (typeof parsed === 'string') parsed = JSON.parse(parsed);
+    if (parsed && typeof parsed === 'object' && 'payload' in parsed) {
+      const p = (parsed as { payload?: unknown }).payload;
+      return typeof p === 'string' && p.trim() ? p.trim() : null;
+    }
+    return null;
+  } catch {
+    return null;
+  } finally {
+    if (timer) clearTimeout(timer);
+  }
+}
+
+export async function readPermanentCloud(key: string): Promise<string | null> {
+  const [onlineRaw, devRaw] = await Promise.all([
+    readTextDbOnline(key),
+    readTextDbDev(key),
+  ]);
+  return onlineRaw || devRaw || null;
+}
+
+async function readAllPermanentCloudCandidates(key: string): Promise<string[]> {
+  const [onlineRaw, devRaw] = await Promise.all([
+    readTextDbOnline(key),
+    readTextDbDev(key),
+  ]);
+  return Array.from(new Set([onlineRaw, devRaw].filter((x): x is string => Boolean(x && x.startsWith('BC1:')))));
 }
 
 async function pingSseTopic(sseTopic: string, updatedAt: number): Promise<void> {
@@ -328,9 +590,10 @@ async function pingSseTopic(sseTopic: string, updatedAt: number): Promise<void> 
     await fetch(`${NTFY_BASE_URL}/${encodeURIComponent(sseTopic)}`, {
       method: 'POST',
       body: JSON.stringify({ t: updatedAt }),
+      keepalive: true,
     });
   } catch {
-    // Optional realtime relay; permanent truth is always textdb.online
+    // Optional realtime relay; permanent truth is always textdb.online + textdb.dev
   }
 }
 
@@ -343,7 +606,7 @@ export interface SyncOutcome {
 }
 
 /**
- * 標準雙向同步流程：永遠先 Pull 雲端解密比對合併，再決定是否需要 Push！絕不拿空白預設洗掉雲端！
+ * 標準雙向同步流程：永遠先從雙永久雲端 Pull 解密比對合併，再決定是否需要 Push！絕不拿空白預設洗掉雲端！
  */
 export async function syncWithCloudVault(
   localState: VaultState,
@@ -363,27 +626,40 @@ export async function syncWithCloudVault(
 
   try {
     const { vaultKey, sseTopic } = await deriveVaultIdentity(cleanPass);
-    const rawCloud = await readPermanentCloud(vaultKey);
+    const rawCandidates = await readAllPermanentCloudCandidates(vaultKey);
 
     let merged = localState;
     let pulledFromCloud = false;
-    let remoteUpdatedAt = 0;
+    let maxRemoteUpdatedAt = 0;
 
-    if (rawCloud && rawCloud.startsWith('BC1:')) {
-      const decryptedJson = await decryptVaultPayload(rawCloud, cleanPass);
-      const remoteState = JSON.parse(decryptedJson) as VaultState;
-      remoteUpdatedAt = remoteState.updatedAt || 0;
-      merged = mergeVaultStates(localState, remoteState);
-      pulledFromCloud = true;
+    for (const rawCloud of rawCandidates) {
+      try {
+        const decryptedJson = await decryptVaultPayload(rawCloud, cleanPass);
+        const remoteState = parseVaultJson(decryptedJson);
+        if (remoteState) {
+          maxRemoteUpdatedAt = Math.max(maxRemoteUpdatedAt, remoteState.updatedAt || 0);
+          merged = mergeVaultStates(merged, remoteState);
+          pulledFromCloud = true;
+        }
+      } catch {
+        // Ignore corrupted or wrong-passcode candidate if another candidate succeeds
+      }
     }
 
+    if (rawCandidates.length > 0 && !pulledFromCloud) {
+      throw new Error('通行碼不正確，無法解開既有雲端加密紀錄');
+    }
+
+    // 與最新本機狀態再做一次防競態合併後存檔
+    const latestLocalSync = loadLocalVaultSync();
+    merged = mergeVaultStates(latestLocalSync, merged);
     await saveLocalVaultState(merged);
 
-    // 只有當本機確實有已編輯內容且 (雲端尚無資料 / 本機較新 / 強制同步) 時才寫入雲端
+    // 只有當本機確實有已編輯內容且 (雲端尚無資料 / 本機較新 / 雙節點不一致 / 強制同步) 時才寫入雲端
     const shouldPush =
       !merged.isUneditedDefault &&
       merged.updatedAt > 0 &&
-      (!rawCloud || merged.updatedAt > remoteUpdatedAt || forcePushIfEdited);
+      (rawCandidates.length < 2 || merged.updatedAt > maxRemoteUpdatedAt || forcePushIfEdited);
 
     let pushedToCloud = false;
     if (shouldPush) {

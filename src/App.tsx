@@ -28,8 +28,10 @@ import {
 import { getDailyGreeting } from './data/praiseMessages';
 import {
   requestPersistentStorage,
+  loadLocalVaultSync,
   loadLocalVaultState,
   saveLocalVaultState,
+  loadRememberedPasscodeSync,
   loadRememberedPasscode,
   saveRememberedPasscode,
   syncWithCloudVault,
@@ -78,8 +80,8 @@ function shiftDateKey(dateKey: string, deltaDays: number): string {
 }
 
 export const App: React.FC = () => {
-  const [vault, setVault] = useState<VaultState>(() => createInitialVaultState());
-  const [passcode, setPasscode] = useState<string>('');
+  const [vault, setVault] = useState<VaultState>(() => loadLocalVaultSync());
+  const [passcode, setPasscode] = useState<string>(() => loadRememberedPasscodeSync());
   const [quickPassInput, setQuickPassInput] = useState<string>('');
   const [booted, setBooted] = useState(false);
   const [syncBusy, setSyncBusy] = useState(false);
@@ -102,6 +104,10 @@ export const App: React.FC = () => {
   vaultRef.current = vault;
   const passcodeRef = useRef(passcode);
   passcodeRef.current = passcode;
+  const syncInFlightRef = useRef(false);
+  const pendingSyncRef = useRef<{ pass: string; forcePush: boolean; showToast: boolean } | null>(
+    null
+  );
 
   const showToast = useCallback((msg: string) => {
     setToastMsg(msg);
@@ -115,25 +121,60 @@ export const App: React.FC = () => {
 
   const triggerCloudSync = useCallback(
     async (baseState: VaultState, pass: string, showSuccessToast = false, forcePush = false) => {
-      if (!pass.trim()) return baseState;
-      setSyncBusy(true);
-      const outcome = await syncWithCloudVault(baseState, pass, forcePush);
-      setSyncBusy(false);
-      if (outcome.ok) {
-        setVault(outcome.mergedState);
-        if (showSuccessToast) {
-          showToast('☁️ Bobo 已幫妳同步最新雲端紀錄囉！');
-        }
-        return outcome.mergedState;
-      } else if (showSuccessToast && outcome.errorMessage) {
-        showToast(`⚠️ ${outcome.errorMessage}`);
+      const cleanPass = pass.trim();
+      if (!cleanPass) return baseState;
+
+      // 若上一輪同步仍在進行中，排入佇列避免背景舊請求覆蓋剛新增的紀錄！
+      if (syncInFlightRef.current) {
+        pendingSyncRef.current = {
+          pass: cleanPass,
+          forcePush: Boolean(pendingSyncRef.current?.forcePush || forcePush),
+          showToast: Boolean(pendingSyncRef.current?.showToast || showSuccessToast),
+        };
+        return vaultRef.current;
       }
-      return baseState;
+
+      syncInFlightRef.current = true;
+      setSyncBusy(true);
+
+      let latestMerged = mergeVaultStates(vaultRef.current, baseState);
+      try {
+        const outcome = await syncWithCloudVault(latestMerged, cleanPass, forcePush);
+        if (outcome.ok) {
+          setVault((prev) => {
+            const safeMerged = mergeVaultStates(prev, outcome.mergedState);
+            latestMerged = safeMerged;
+            vaultRef.current = safeMerged;
+            void saveLocalVaultState(safeMerged);
+            return safeMerged;
+          });
+          if (showSuccessToast) {
+            showToast('☁️ Bobo 已幫妳同步最新雲端紀錄囉！');
+          }
+        } else if (showSuccessToast && outcome.errorMessage) {
+          showToast(`⚠️ ${outcome.errorMessage}`);
+        }
+      } finally {
+        syncInFlightRef.current = false;
+        setSyncBusy(false);
+
+        const nextPending = pendingSyncRef.current;
+        if (nextPending) {
+          pendingSyncRef.current = null;
+          void triggerCloudSync(
+            vaultRef.current,
+            nextPending.pass,
+            nextPending.showToast,
+            nextPending.forcePush
+          );
+        }
+      }
+      return latestMerged;
     },
     [showToast]
   );
 
-  // Boot: request persistent storage, load local + IndexedDB backup, then pull cloud if passcode saved
+  // Boot: request persistent storage, merge localStorage + IndexedDB + orphan photos, then pull cloud
   useEffect(() => {
     let mounted = true;
     (async () => {
@@ -143,12 +184,20 @@ export const App: React.FC = () => {
         loadRememberedPasscode(),
       ]);
       if (!mounted) return;
-      setVault(localState);
-      setPasscode(savedPass);
+      let mergedBootState = localState;
+      setVault((prev) => {
+        mergedBootState = mergeVaultStates(prev, localState);
+        vaultRef.current = mergedBootState;
+        return mergedBootState;
+      });
+      if (savedPass) {
+        setPasscode(savedPass);
+        passcodeRef.current = savedPass;
+      }
       setBooted(true);
 
       if (savedPass) {
-        await triggerCloudSync(localState, savedPass, false, false);
+        await triggerCloudSync(mergedBootState, savedPass, false, !mergedBootState.isUneditedDefault);
       }
     })();
     return () => {
@@ -187,6 +236,7 @@ export const App: React.FC = () => {
     (updater: (prev: VaultState) => VaultState) => {
       setVault((prev) => {
         const next = updater(prev);
+        vaultRef.current = next;
         void saveLocalVaultState(next);
         if (passcodeRef.current.trim()) {
           void triggerCloudSync(next, passcodeRef.current, false, true);
@@ -201,12 +251,22 @@ export const App: React.FC = () => {
     const clean = rawPass.trim();
     if (!clean) return { ok: false, msg: '請輸入通行碼喔' };
     setSyncBusy(true);
-    const outcome = await syncWithCloudVault(vaultRef.current, clean, !vaultRef.current.isUneditedDefault);
+    const outcome = await syncWithCloudVault(
+      vaultRef.current,
+      clean,
+      !vaultRef.current.isUneditedDefault
+    );
     setSyncBusy(false);
     if (outcome.ok) {
       setPasscode(clean);
+      passcodeRef.current = clean;
       await saveRememberedPasscode(clean);
-      setVault(outcome.mergedState);
+      setVault((prev) => {
+        const safeMerged = mergeVaultStates(prev, outcome.mergedState);
+        vaultRef.current = safeMerged;
+        void saveLocalVaultState(safeMerged);
+        return safeMerged;
+      });
       showToast('🔐 通行碼已綁定！Safari 與主畫面已開啟自動同步 ✨');
       return {
         ok: true,

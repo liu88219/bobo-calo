@@ -132,7 +132,12 @@ export const MealLoggerModal: React.FC<Props> = ({
   const handleRunAiAnalysis = async () => {
     setErrorMsg('');
     setRecalcSuccessMsg('');
-    if (!processedImg && !descriptionText.trim()) {
+    const existingBase64 =
+      existingPhotoPreview && existingPhotoPreview.startsWith('data:image/')
+        ? existingPhotoPreview.slice(existingPhotoPreview.indexOf(',') + 1)
+        : undefined;
+    const effectiveBase64 = processedImg?.apiBase64 || existingBase64;
+    if (!effectiveBase64 && !descriptionText.trim()) {
       setErrorMsg('請先拍一張美食照片，或輸入吃了什麼喔 🍱');
       return;
     }
@@ -143,8 +148,8 @@ export const MealLoggerModal: React.FC<Props> = ({
         apiKey: geminiApiKey,
         category,
         descriptionText,
-        imageBase64: processedImg?.apiBase64,
-        imageMimeType: processedImg?.mimeType,
+        imageBase64: effectiveBase64,
+        imageMimeType: processedImg?.mimeType || 'image/jpeg',
       });
       setMealTitle(res.title);
       setItems(res.items);
@@ -506,7 +511,7 @@ export const MealLoggerModal: React.FC<Props> = ({
               </div>
             </div>
 
-            {(!isEditingExisting || Boolean(processedImg)) && (
+            {(!isEditingExisting || Boolean(processedImg) || Boolean(existingPhotoPreview)) && (
               <button
                 type="button"
                 disabled={analyzing || recalculating}
@@ -602,9 +607,10 @@ export const MealLoggerModal: React.FC<Props> = ({
                 className="flex-1 px-3 py-2 rounded-xl border border-[#D8D2C5] text-xs bg-white"
               />
               <input
-                type="number"
+                type="text"
+                inputMode="numeric"
                 value={customCalories}
-                onChange={(e) => setCustomCalories(e.target.value)}
+                onChange={(e) => setCustomCalories(e.target.value.replace(/[^0-9]/g, ''))}
                 placeholder="大卡"
                 className="w-20 px-2.5 py-2 rounded-xl border border-[#D8D2C5] text-xs bg-white"
               />
@@ -710,9 +716,14 @@ export const MealLoggerModal: React.FC<Props> = ({
                         ×0.5
                       </button>
                       <input
-                        type="number"
-                        value={it.calories}
-                        onChange={(e) => updateItemCalories(it.id, Number(e.target.value))}
+                        type="text"
+                        inputMode="numeric"
+                        placeholder="0"
+                        value={it.calories === 0 ? '' : String(it.calories)}
+                        onChange={(e) => {
+                          const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                          updateItemCalories(it.id, cleaned === '' ? 0 : Number(cleaned));
+                        }}
                         className="w-16 px-2 py-0.5 rounded-lg border border-[#D8D2C5] bg-white text-xs font-black text-right text-[#C83B32]"
                       />
                       <span>kcal</span>

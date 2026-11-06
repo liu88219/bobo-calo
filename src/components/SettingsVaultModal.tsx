@@ -1,4 +1,4 @@
-import React, { useRef, useState } from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import {
   X,
   Lock,
@@ -36,6 +36,22 @@ interface Props {
   onClose: () => void;
 }
 
+function sanitizeDecimalInput(raw: string): string {
+  const normalized = raw
+    .replace(/[。．,]/g, '.')
+    .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/[^0-9.]/g, '');
+  const firstDot = normalized.indexOf('.');
+  if (firstDot === -1) return normalized;
+  return normalized.slice(0, firstDot + 1) + normalized.slice(firstDot + 1).replace(/\./g, '');
+}
+
+function sanitizeIntInput(raw: string): string {
+  return raw
+    .replace(/[０-９]/g, (ch) => String.fromCharCode(ch.charCodeAt(0) - 0xfee0))
+    .replace(/[^0-9]/g, '');
+}
+
 export const SettingsVaultModal: React.FC<Props> = ({
   profile,
   geminiApiKey,
@@ -51,6 +67,14 @@ export const SettingsVaultModal: React.FC<Props> = ({
   const [passFeedback, setPassFeedback] = useState('');
 
   const [draftProfile, setDraftProfile] = useState<UserProfile>({ ...profile });
+  const [ageInput, setAgeInput] = useState(() => String(profile.age));
+  const [heightInput, setHeightInput] = useState(() => String(profile.heightCm));
+  const [weightInput, setWeightInput] = useState(() => String(profile.weightKg));
+  const [waterInput, setWaterInput] = useState(() => String(profile.dailyWaterTargetMl));
+  const [customCalInput, setCustomCalInput] = useState(() =>
+    String(profile.customDailyCalories || 1500)
+  );
+
   const [draftKey, setDraftKey] = useState(geminiApiKey);
   const [showKey, setShowKey] = useState(false);
   const [testingKey, setTestingKey] = useState(false);
@@ -58,9 +82,51 @@ export const SettingsVaultModal: React.FC<Props> = ({
 
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
-  const previewBmr = calculateBmr(draftProfile);
-  const previewTdee = calculateTdee(draftProfile);
-  const previewBudget = calculateDailyCalorieBudget(draftProfile);
+  useEffect(() => {
+    setDraftProfile({ ...profile });
+    setAgeInput(String(profile.age));
+    setHeightInput(String(profile.heightCm));
+    setWeightInput(String(profile.weightKg));
+    setWaterInput(String(profile.dailyWaterTargetMl));
+    setCustomCalInput(String(profile.customDailyCalories || 1500));
+  }, [profile]);
+
+  useEffect(() => {
+    if (geminiApiKey) setDraftKey(geminiApiKey);
+  }, [geminiApiKey]);
+
+  const parsedAge = Number.parseInt(ageInput, 10);
+  const parsedHeight = Number.parseFloat(heightInput);
+  const parsedWeight = Number.parseFloat(weightInput);
+  const parsedWater = Number.parseInt(waterInput, 10);
+  const parsedCustomCal = Number.parseInt(customCalInput, 10);
+
+  const effectiveProfile: UserProfile = {
+    ...draftProfile,
+    age: Number.isFinite(parsedAge) && parsedAge >= 10 && parsedAge <= 110 ? parsedAge : profile.age,
+    heightCm:
+      Number.isFinite(parsedHeight) && parsedHeight >= 100 && parsedHeight <= 230
+        ? Math.round(parsedHeight * 10) / 10
+        : profile.heightCm,
+    weightKg:
+      Number.isFinite(parsedWeight) && parsedWeight >= 25 && parsedWeight <= 250
+        ? Math.round(parsedWeight * 10) / 10
+        : profile.weightKg,
+    dailyWaterTargetMl:
+      Number.isFinite(parsedWater) && parsedWater >= 300 && parsedWater <= 6000
+        ? parsedWater
+        : profile.dailyWaterTargetMl,
+    customDailyCalories:
+      draftProfile.goalMode === 'custom'
+        ? Number.isFinite(parsedCustomCal) && parsedCustomCal >= 800 && parsedCustomCal <= 5000
+          ? parsedCustomCal
+          : profile.customDailyCalories || 1500
+        : draftProfile.customDailyCalories,
+  };
+
+  const previewBmr = calculateBmr(effectiveProfile);
+  const previewTdee = calculateTdee(effectiveProfile);
+  const previewBudget = calculateDailyCalorieBudget(effectiveProfile);
 
   const handlePasscodeAction = async () => {
     if (!passInput.trim()) {
@@ -93,7 +159,7 @@ export const SettingsVaultModal: React.FC<Props> = ({
   };
 
   const handleSaveAll = () => {
-    onSaveProfileAndKey(draftProfile, draftKey.trim());
+    onSaveProfileAndKey(effectiveProfile, draftKey.trim());
     onClose();
   };
 
@@ -243,22 +309,22 @@ export const SettingsVaultModal: React.FC<Props> = ({
             <div>
               <label className="block text-[11px] font-bold text-[#7C5841] mb-1">年齡</label>
               <input
-                type="number"
-                value={draftProfile.age}
-                onChange={(e) =>
-                  setDraftProfile({ ...draftProfile, age: Number(e.target.value) || 25 })
-                }
+                type="text"
+                inputMode="numeric"
+                value={ageInput}
+                placeholder="例如：28"
+                onChange={(e) => setAgeInput(sanitizeIntInput(e.target.value))}
                 className="w-full px-3 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-xs"
               />
             </div>
             <div>
               <label className="block text-[11px] font-bold text-[#7C5841] mb-1">身高 (cm)</label>
               <input
-                type="number"
-                value={draftProfile.heightCm}
-                onChange={(e) =>
-                  setDraftProfile({ ...draftProfile, heightCm: Number(e.target.value) || 160 })
-                }
+                type="text"
+                inputMode="decimal"
+                value={heightInput}
+                placeholder="例如：160"
+                onChange={(e) => setHeightInput(sanitizeDecimalInput(e.target.value))}
                 className="w-full px-3 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-xs"
               />
             </div>
@@ -266,12 +332,11 @@ export const SettingsVaultModal: React.FC<Props> = ({
             <div>
               <label className="block text-[11px] font-bold text-[#7C5841] mb-1">目前體重 (kg)</label>
               <input
-                type="number"
-                step="0.1"
-                value={draftProfile.weightKg}
-                onChange={(e) =>
-                  setDraftProfile({ ...draftProfile, weightKg: Number(e.target.value) || 54 })
-                }
+                type="text"
+                inputMode="decimal"
+                value={weightInput}
+                placeholder="例如：49.5"
+                onChange={(e) => setWeightInput(sanitizeDecimalInput(e.target.value))}
                 className="w-full px-3 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-xs"
               />
             </div>
@@ -318,25 +383,19 @@ export const SettingsVaultModal: React.FC<Props> = ({
               </label>
               <div className="flex gap-1">
                 <input
-                  type="number"
-                  step="100"
-                  value={draftProfile.dailyWaterTargetMl}
-                  onChange={(e) =>
-                    setDraftProfile({
-                      ...draftProfile,
-                      dailyWaterTargetMl: Number(e.target.value) || 1800,
-                    })
-                  }
+                  type="text"
+                  inputMode="numeric"
+                  value={waterInput}
+                  placeholder="1800"
+                  onChange={(e) => setWaterInput(sanitizeIntInput(e.target.value))}
                   className="w-full px-2.5 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-xs"
                 />
                 <button
                   type="button"
-                  onClick={() =>
-                    setDraftProfile({
-                      ...draftProfile,
-                      dailyWaterTargetMl: Math.round((draftProfile.weightKg * 33) / 50) * 50,
-                    })
-                  }
+                  onClick={() => {
+                    const autoMl = Math.round((effectiveProfile.weightKg * 33) / 50) * 50;
+                    setWaterInput(String(autoMl));
+                  }}
                   className="px-2 py-1 rounded-xl bg-white border border-[#DFC8AC] text-[10px] font-bold whitespace-nowrap"
                 >
                   自動算
@@ -351,14 +410,11 @@ export const SettingsVaultModal: React.FC<Props> = ({
                 自訂每日目標熱量 (kcal)
               </label>
               <input
-                type="number"
-                value={draftProfile.customDailyCalories || 1500}
-                onChange={(e) =>
-                  setDraftProfile({
-                    ...draftProfile,
-                    customDailyCalories: Number(e.target.value) || 1500,
-                  })
-                }
+                type="text"
+                inputMode="numeric"
+                value={customCalInput}
+                placeholder="例如：1500"
+                onChange={(e) => setCustomCalInput(sanitizeIntInput(e.target.value))}
                 className="w-full px-3 py-1.5 rounded-xl border border-[#DFC8AC] bg-white text-xs"
               />
             </div>
