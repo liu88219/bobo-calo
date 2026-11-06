@@ -1,34 +1,34 @@
 import React, { useId } from 'react';
 
-const FUR = '#C48B60';
-const INK = '#161210';
-const TONGUE = '#E2766A';
+const FUR = '#C99661';
+const INK = '#171210';
 const BOBO_WHITE = '#FFFFFF';
+const BOBO_SHADE = '#EAE6DC';
 const RED_TEE = '#C83B32';
 const NAVY_SWEATER = '#25385B';
 const DENIM_OVERALL = '#2A537A';
 const OLIVE_VEST = '#485F44';
-const WOOD_STOOL = '#6B4A31';
+const WOOD_STOOL = '#704F36';
 const BED_SHEET = '#F5F0E4';
 const BED_BLANKET = '#D4DEC9';
 const PILLOW_CREAM = '#FFFDF8';
-const CHEER_CREAM = '#FFFDF5';
+const CHEER_CREAM = '#F7CE6A';
 
-function CrayonFilterDef({ id, scale = 2.4 }: { id: string; scale?: number }) {
+function CrayonFilterDef({ id, scale = 1.9 }: { id: string; scale?: number }) {
   return (
     <defs>
-      <filter id={id} x="-12%" y="-12%" width="124%" height="124%">
+      <filter id={id} x="-10%" y="-10%" width="120%" height="120%">
         <feTurbulence
           type="fractalNoise"
-          baseFrequency="0.075"
-          numOctaves="3"
-          seed="11"
+          baseFrequency="0.62"
+          numOctaves="4"
+          seed="7"
           result="noise"
         />
         <feDisplacementMap
           in="SourceGraphic"
           in2="noise"
-          scale={scale}
+          scale={Math.min(2.1, scale)}
           xChannelSelector="R"
           yChannelSelector="G"
         />
@@ -55,30 +55,33 @@ function DtQuokkaHead({
   return (
     <g transform={`translate(${cx}, ${cy}) scale(${scale})`}>
       <g filter={`url(#${filterId})`}>
-        <circle cx="-14" cy="-21" r="9.5" fill={FUR} />
-        <circle cx="14" cy="-21" r="9.5" fill={FUR} />
-        <ellipse cx="0" cy="0" rx="23" ry="21.5" fill={FUR} />
-      </g>
-      <ellipse cx="-6.2" cy="-7" rx="2.1" ry="2.5" fill={INK} />
-      <ellipse cx="6.2" cy="-7" rx="2.1" ry="2.5" fill={INK} />
-      <ellipse cx="0" cy="-0.2" rx="3.6" ry="4.8" fill={INK} />
-      {mouth === 'open' ? (
-        <>
-          <ellipse cx="0" cy="9.2" rx="4.6" ry="4.2" fill={INK} />
-          <ellipse cx="0" cy="11" rx="2.9" ry="1.7" fill={TONGUE} />
-        </>
-      ) : (
+        {/* V2 Gold-Standard crown-ears + chubby lower-cheek silhouette */}
         <path
-          d="M-5.5 7.5 Q0 12.5 5.5 7.5"
-          fill="none"
-          stroke={INK}
-          strokeWidth="2.3"
-          strokeLinecap="round"
+          d="M -11 -21
+             C -21 -32, -29 -22, -22 -9
+             C -27 0, -27 14, -19 21
+             C -11 26, 11 26, 19 21
+             C 27 14, 27 0, 22 -9
+             C 29 -22, 21 -32, 11 -21
+             C 6 -23, -6 -23, -11 -21 Z"
+          fill={FUR}
         />
-      )}
+        <circle cx="-5.2" cy="-6" r="2.1" fill={INK} />
+        <circle cx="5.2" cy="-6" r="2.1" fill={INK} />
+        <ellipse cx="0" cy="3.2" rx="4.6" ry="6.2" fill={INK} />
+        {mouth === 'smile' && (
+          <path
+            d="M -3.8 11.2 Q 0 14 3.8 11.2"
+            fill="none"
+            stroke={INK}
+            strokeWidth="1.9"
+            strokeLinecap="round"
+          />
+        )}
+      </g>
       {sweatDrop && (
         <path
-          d="M20 -13 Q23 -8 21.5 -5 A2.4 2.4 0 1 1 18 -5 Q17 -8 20 -13 Z"
+          d="M21 -12 Q24 -7 22.5 -4 A2.4 2.4 0 1 1 19 -4 Q18 -7 21 -12 Z"
           fill="#7DB4D4"
         />
       )}
@@ -111,83 +114,106 @@ function DtBobo({
     <g transform={`translate(${cx}, ${cy}) scale(${scale})`}>
       <g className={className}>
         <g filter={`url(#${filterId})`}>
-          <circle cx="-13" cy="-23" r="6.5" fill={BOBO_WHITE} />
-          <circle cx="13" cy="-23" r="6.5" fill={BOBO_WHITE} />
-          <ellipse cx="0" cy="-9" rx="18.5" ry="15.5" fill={BOBO_WHITE} />
-          <ellipse cx="0" cy="11" rx="19.5" ry="19" fill={BOBO_WHITE} />
+          {/* Soft pillow shadow */}
+          <path
+            d="M -12 -21
+               C -22 -28, -27 -18, -21 -8
+               C -26 2, -25 22, -14 29
+               C -9 32, -4 27, 0 27
+               C 4 27, 9 32, 14 29
+               C 25 22, 26 2, 21 -8
+               C 27 -18, 22 -28, 12 -21
+               C 5 -22, -5 -22, -12 -21 Z"
+            fill={BOBO_SHADE}
+            transform="translate(1.2, 1.5)"
+          />
+          {/* Stubby ~1:1 squishy cloud gummy bear body */}
+          <path
+            d="M -12 -21
+               C -22 -28, -27 -18, -21 -8
+               C -26 2, -25 22, -14 29
+               C -9 32, -4 27, 0 27
+               C 4 27, 9 32, 14 29
+               C 25 22, 26 2, 21 -8
+               C 27 -18, 22 -28, 12 -21
+               C 5 -22, -5 -22, -12 -21 Z"
+            fill={BOBO_WHITE}
+          />
           {armsWide ? (
             <>
-              <ellipse cx="-23" cy="2" rx="9.5" ry="4.5" fill={BOBO_WHITE} />
-              <ellipse cx="23" cy="2" rx="9.5" ry="4.5" fill={BOBO_WHITE} />
+              <ellipse cx="-24" cy="2" rx="8.5" ry="4.8" fill={BOBO_WHITE} />
+              <ellipse cx="24" cy="2" rx="8.5" ry="4.8" fill={BOBO_WHITE} />
             </>
           ) : armsUp ? (
             <>
               <ellipse
-                cx="-19"
-                cy="1"
-                rx="7.5"
-                ry="5"
-                transform="rotate(-28 -19 1)"
-                fill={BOBO_WHITE}
-              />
-              <ellipse
-                cx="19"
+                cx="-21"
                 cy="-1"
                 rx="7.5"
                 ry="5"
-                transform="rotate(28 19 -1)"
+                transform="rotate(-30 -21 -1)"
+                fill={BOBO_WHITE}
+              />
+              <ellipse
+                cx="21"
+                cy="-2"
+                rx="7.5"
+                ry="5"
+                transform="rotate(30 21 -2)"
                 fill={BOBO_WHITE}
               />
             </>
           ) : (
             <>
               <ellipse
-                cx="-18"
-                cy="8"
+                cx="-19"
+                cy="7"
                 rx="6.5"
                 ry="4.8"
-                transform="rotate(20 -18 8)"
+                transform="rotate(18 -19 7)"
                 fill={BOBO_WHITE}
               />
               <ellipse
-                cx="18"
-                cy="8"
+                cx="19"
+                cy="7"
                 rx="6.5"
                 ry="4.8"
-                transform="rotate(-20 18 8)"
+                transform="rotate(-18 19 7)"
                 fill={BOBO_WHITE}
               />
             </>
           )}
-          <ellipse cx="-8.5" cy="28" rx="6" ry="4" fill={BOBO_WHITE} />
-          <ellipse cx="8.5" cy="28" rx="6" ry="4" fill={BOBO_WHITE} />
           {redBag && (
-            <path
-              d="M13 -2 C22 -2 22 14 13 14"
-              fill="none"
-              stroke={RED_TEE}
-              strokeWidth="4.2"
-              strokeLinecap="round"
-            />
+            <g>
+              <path
+                d="M14 4 C14 -3, 24 -3, 24 4"
+                fill="none"
+                stroke={RED_TEE}
+                strokeWidth="2.6"
+                strokeLinecap="round"
+              />
+              <rect x="12" y="3" width="14" height="11" rx="4" fill={RED_TEE} />
+            </g>
           )}
+          {/* Calm gentle • • + ω gummy face */}
+          <circle cx="-4.5" cy="-9" r="1.8" fill={INK} />
+          <circle cx="4.5" cy="-9" r="1.8" fill={INK} />
+          <circle cx="0" cy="-4" r="1.7" fill={INK} />
+          <path
+            d="M -5 -0.2 Q -2.5 2.8 0 -0.8 Q 2.5 2.8 5 -0.2"
+            fill="none"
+            stroke={INK}
+            strokeWidth="1.8"
+            strokeLinecap="round"
+            strokeLinejoin="round"
+          />
         </g>
 
-        <ellipse cx="-4.2" cy="-12.5" rx="1.65" ry="2" fill={INK} />
-        <ellipse cx="4.2" cy="-12.5" rx="1.65" ry="2" fill={INK} />
-        <ellipse cx="0" cy="-8.2" rx="2.1" ry="1.6" fill={INK} />
-        <path
-          d="M0 -7.2 L0 -4.8 M-4.5 -5.2 Q-2.2 -2.2 0 -5 Q2.2 -2.2 4.5 -5.2"
-          fill="none"
-          stroke={INK}
-          strokeWidth="1.65"
-          strokeLinecap="round"
-        />
-
         {cheerLines && (
-          <g stroke={CHEER_CREAM} strokeWidth="2.1" strokeLinecap="round">
-            <line x1="-24" y1="-26" x2="-30" y2="-32" />
-            <line x1="23" y1="-28" x2="29" y2="-34" />
-            <line x1="27" y1="-19" x2="34" y2="-21" />
+          <g stroke={CHEER_CREAM} strokeWidth="2.2" strokeLinecap="round">
+            <line x1="-24" y1="-25" x2="-30" y2="-31" />
+            <line x1="23" y1="-27" x2="29" y2="-33" />
+            <line x1="27" y1="-18" x2="34" y2="-20" />
           </g>
         )}
       </g>
@@ -253,93 +279,29 @@ function CozyBedStage({ filterId }: { filterId: string }) {
 export const MascotDuoIllustration: React.FC<{
   mood?: 'greeting' | 'proud' | 'eating';
   className?: string;
-}> = ({ mood = 'greeting', className = 'w-36 h-24' }) => {
-  const rawId = useId().replace(/:/g, '');
-  const filterId = `dt-hero-${rawId}`;
-
-  if (mood === 'eating') {
-    return (
-      <svg viewBox="0 0 185 118" className={className} aria-hidden="true">
-        <CrayonFilterDef id={filterId} scale={2.3} />
-        <ellipse cx="94" cy="106" rx="72" ry="7" fill="#D5AE46" opacity="0.35" />
-
-        <DtBobo
-          cx={36}
-          cy={76}
-          scale={0.78}
-          filterId={filterId}
-          armsUp={false}
-          cheerLines={false}
-          className="anim-breathe"
-        />
-        <rect
-          x="23"
-          y="78"
-          width="11"
-          height="13"
-          rx="2.5"
-          fill="#B67B50"
-          filter={`url(#${filterId})`}
-        />
-
-        <g transform="translate(112, 62)" className="anim-breathe">
-          <g filter={`url(#${filterId})`}>
-            <ellipse cx="0" cy="24" rx="34" ry="20" fill={DENIM_OVERALL} />
-            <ellipse cx="26" cy="28" rx="16" ry="12" fill={FUR} />
-            <ellipse cx="-26" cy="36" rx="5" ry="10" transform="rotate(-18 -26 36)" fill={INK} />
-            <ellipse cx="38" cy="34" rx="5" ry="10" transform="rotate(14 38 34)" fill={INK} />
-            <polygon points="-8,8 6,8 4,26 -6,26" fill={RED_TEE} />
-            <line x1="-1" y1="8" x2="-4" y2="-1" stroke={BOBO_WHITE} strokeWidth="2.4" strokeLinecap="round" />
-            <ellipse cx="-14" cy="14" rx="9" ry="5.5" fill={FUR} />
-            <circle cx="-6" cy="16" r="4" fill={INK} />
-          </g>
-          <DtQuokkaHead cx={-4} cy={-12} scale={0.95} filterId={filterId} mouth="smile" />
-        </g>
-      </svg>
-    );
-  }
+}> = ({ mood = 'greeting', className = 'w-40 h-24' }) => {
+  const file =
+    mood === 'eating'
+      ? 'assets/sip-toast.webp'
+      : mood === 'proud'
+        ? 'assets/gold-marshmallow-tower.webp'
+        : 'assets/hero-bobo-calo.webp';
+  const bg = mood === 'greeting' ? 'bg-[#EFEAD9]' : 'bg-[#DBD7CA]';
+  const src = `./${file}?v=3`;
 
   return (
-    <svg viewBox="0 0 192 122" className={className} aria-hidden="true">
-      <CrayonFilterDef id={filterId} scale={2.3} />
-      <ellipse cx="52" cy="109" rx="36" ry="6" fill="#D5AC42" opacity="0.45" />
-      <ellipse cx="146" cy="110" rx="30" ry="5.5" fill="#D5AC42" opacity="0.45" />
-
-      <g transform="translate(48, 60)" className="anim-breathe">
-        <g filter={`url(#${filterId})`}>
-          <ellipse cx="0" cy="26" rx="25" ry="24" fill={mood === 'proud' ? RED_TEE : FUR} />
-          {mood === 'proud' && <ellipse cx="0" cy="42" rx="22" ry="10" fill={FUR} />}
-          <ellipse cx="-18" cy="41" rx="4.2" ry="11" transform="rotate(-18 -18 41)" fill={INK} />
-          <ellipse cx="22" cy="40" rx="4.2" ry="11" transform="rotate(18 22 40)" fill={INK} />
-          <ellipse cx="12" cy="19" rx="10" ry="6" fill={mood === 'proud' ? RED_TEE : FUR} />
-          <circle cx="19" cy="19" r="4.2" fill={INK} />
-        </g>
-        <DtMarsh cx={25} cy={17} rotate={-10} filterId={filterId} />
-        <DtQuokkaHead cx={0} cy={-11} scale={0.94} filterId={filterId} mouth="open" />
-      </g>
-
-      <g transform="translate(96, 0)">
-        <DtMarsh cx={0} cy={103} rotate={2} filterId={filterId} />
-        <DtMarsh cx={-1.5} cy={90} rotate={-4} filterId={filterId} />
-        <DtMarsh cx={1} cy={77} rotate={4} filterId={filterId} />
-        <DtMarsh cx={-1} cy={64} rotate={-3} filterId={filterId} />
-      </g>
-
-      <g filter={`url(#${filterId})`}>
-        <rect x="122" y="88" width="44" height="6.5" rx="2.5" fill={WOOD_STOOL} />
-        <rect x="128" y="93" width="6" height="17" rx="1.5" fill={WOOD_STOOL} />
-        <rect x="154" y="93" width="6" height="17" rx="1.5" fill={WOOD_STOOL} />
-      </g>
-      <DtBobo
-        cx={144}
-        cy={58}
-        scale={0.86}
-        filterId={filterId}
-        armsUp
-        cheerLines
-        className="anim-float-bob"
+    <div
+      className={`overflow-hidden rounded-2xl border border-[#DDD7C9] ${bg} shadow-sm select-none ${className}`}
+      aria-hidden="true"
+    >
+      <img
+        src={src}
+        alt=""
+        loading="eager"
+        decoding="async"
+        className="w-full h-full object-cover object-center"
       />
-    </svg>
+    </div>
   );
 };
 
