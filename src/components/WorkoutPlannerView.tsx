@@ -18,9 +18,12 @@ import {
   WorkoutPlaylistItem,
   DailyWorkoutPlan,
   DailyWorkoutPlanItem,
+  DailyEnergyAdvice,
+  FavoriteSportPreset,
   ExerciseCategory,
   calculateExerciseCalories,
 } from '../types/tracker';
+import { ExtraSportCategory } from '../data/extraSports';
 import {
   EXERCISES,
   ChallengeIntensity,
@@ -31,6 +34,7 @@ import {
 } from '../data/exercises';
 import { soundEngine } from '../services/soundEffects';
 import { ExerciseAnimationStage, MarshmallowStampBadge } from './QuokkaBoboArt';
+import { SmartEnergyAdvisorCard } from './SmartEnergyAdvisorCard';
 
 interface Props {
   dateKey: string;
@@ -40,6 +44,8 @@ interface Props {
   dailyBudget: number;
   weightKg: number;
   defaultBurnTargetKcal: number;
+  energyAdvice: DailyEnergyAdvice;
+  favoriteSports: FavoriteSportPreset[];
   savedDailyPlan?: DailyWorkoutPlan;
   initialFocusMeal?: MealLog | null;
   onSaveDailyPlan: (plan: DailyWorkoutPlan, nextDefaultTargetKcal?: number) => void;
@@ -47,6 +53,9 @@ interface Props {
     item: DailyWorkoutPlanItem,
     existingMatchedLog?: WorkoutLog
   ) => void;
+  onOpenExtraSportModal: (initialCategory?: ExtraSportCategory | 'custom') => void;
+  onQuickLogFavoriteSport: (preset: FavoriteSportPreset, kcal: number) => void;
+  onRemoveFavoriteSport: (presetId: string) => void;
   onStartPlaylist: (playlist: WorkoutPlaylistItem[], sourceMealId?: string) => void;
 }
 
@@ -58,10 +67,15 @@ export const WorkoutPlannerView: React.FC<Props> = ({
   dailyBudget,
   weightKg,
   defaultBurnTargetKcal,
+  energyAdvice,
+  favoriteSports,
   savedDailyPlan,
   initialFocusMeal,
   onSaveDailyPlan,
   onQuickTogglePlanItem,
+  onOpenExtraSportModal,
+  onQuickLogFavoriteSport,
+  onRemoveFavoriteSport,
   onStartPlaylist,
 }) => {
   const [plannerMode, setPlannerMode] = useState<'daily_target' | 'combo' | 'pick'>(() =>
@@ -327,6 +341,21 @@ export const WorkoutPlannerView: React.FC<Props> = ({
           </button>
         </div>
       </div>
+
+      {/* Smart Intake vs Recommended Burn + Extra Dance/Ball Sports Quick Card */}
+      <SmartEnergyAdvisorCard
+        advice={energyAdvice}
+        weightKg={weightKg}
+        favoriteSports={favoriteSports}
+        activePlanTargetKcal={activeDailyPlan.targetKcal}
+        onApplyRecommendedBurnToPlan={(kcal) => {
+          setPlannerMode('daily_target');
+          applyNewDailyTarget(kcal);
+        }}
+        onOpenExtraSportModal={onOpenExtraSportModal}
+        onQuickLogFavoriteSport={onQuickLogFavoriteSport}
+        onRemoveFavoriteSport={onRemoveFavoriteSport}
+      />
 
       {plannerMode === 'daily_target' ? (
         /* === NEW Mode 0: Daily Target Calorie Plan & Completion Checklist === */

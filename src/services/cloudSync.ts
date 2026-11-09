@@ -4,6 +4,7 @@ import {
   WorkoutLog,
   WaterLog,
   DailyWorkoutPlan,
+  FavoriteSportPreset,
   createInitialVaultState,
   getLocalDateKey,
 } from '../types/tracker';
@@ -225,6 +226,7 @@ export function parseVaultJson(raw: string | null | undefined): VaultState | nul
         parsed.dailyWorkoutPlans && typeof parsed.dailyWorkoutPlans === 'object'
           ? parsed.dailyWorkoutPlans
           : {},
+      favoriteSports: Array.isArray(parsed.favoriteSports) ? parsed.favoriteSports : [],
       deletedIds: parsed.deletedIds || {},
     };
   } catch {
@@ -233,7 +235,12 @@ export function parseVaultJson(raw: string | null | undefined): VaultState | nul
 }
 
 function hasUserRecords(state: VaultState): boolean {
-  return state.meals.length > 0 || state.waters.length > 0 || state.workouts.length > 0;
+  return (
+    state.meals.length > 0 ||
+    state.waters.length > 0 ||
+    state.workouts.length > 0 ||
+    Boolean(state.favoriteSports && state.favoriteSports.length > 0)
+  );
 }
 
 function stripPhotosForSlimLocalStorage(state: VaultState): string {
@@ -562,6 +569,17 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
     }
   }
 
+  const favSportMap = new Map<string, FavoriteSportPreset>();
+  for (const fs of [...(remote.favoriteSports || []), ...(local.favoriteSports || [])]) {
+    if (!fs || !fs.id) continue;
+    const delTs = deletedIds[fs.id];
+    if (delTs && delTs >= (fs.createdAt || 0)) continue;
+    favSportMap.set(fs.id, fs);
+  }
+  const mergedFavoriteSports = Array.from(favSportMap.values()).sort(
+    (a, b) => (a.createdAt || 0) - (b.createdAt || 0)
+  );
+
   const localSettingsNewer = (local.settingsUpdatedAt || 0) >= (remote.settingsUpdatedAt || 0);
   const profile = localSettingsNewer
     ? { ...remote.profile, ...local.profile }
@@ -579,6 +597,7 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
     mergedMeals.length > 0 ||
     mergedWaters.length > 0 ||
     mergedWorkouts.length > 0 ||
+    mergedFavoriteSports.length > 0 ||
     Object.keys(mergedPlans).length > 0;
 
   return {
@@ -593,6 +612,7 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
     waters: mergedWaters,
     stamps: mergedStamps,
     dailyWorkoutPlans: mergedPlans,
+    favoriteSports: mergedFavoriteSports,
     deletedIds,
   };
 }

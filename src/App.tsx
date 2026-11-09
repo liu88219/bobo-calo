@@ -27,6 +27,7 @@ import {
   WorkoutPlaylistItem,
   DailyWorkoutPlan,
   DailyWorkoutPlanItem,
+  FavoriteSportPreset,
   UserProfile,
   MEAL_CATEGORY_META,
   createInitialVaultState,
@@ -34,7 +35,9 @@ import {
   calculateDailyCalorieBudget,
   calculateExerciseCalories,
   resolveDailyBurnTargetKcal,
+  computeDailyEnergyAdvice,
 } from './types/tracker';
+import { ExtraSportCategory } from './data/extraSports';
 import {
   buildDailyCalorieTargetPlan,
   getExerciseById,
@@ -63,6 +66,8 @@ import { MealLoggerModal } from './components/MealLoggerModal';
 import { WorkoutPlannerView } from './components/WorkoutPlannerView';
 import { WorkoutPlayerModal } from './components/WorkoutPlayerModal';
 import { SettingsVaultModal } from './components/SettingsVaultModal';
+import { ExtraSportLoggerModal } from './components/ExtraSportLoggerModal';
+import { SmartEnergyAdvisorCard } from './components/SmartEnergyAdvisorCard';
 
 const MealPhotoDisplay: React.FC<{ meal: MealLog }> = ({ meal }) => {
   const [hiRes, setHiRes] = useState<string | null>(null);
@@ -114,6 +119,9 @@ export const App: React.FC = () => {
   const [showMealModal, setShowMealModal] = useState(false);
   const [editingMeal, setEditingMeal] = useState<MealLog | null>(null);
   const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [extraSportModalCat, setExtraSportModalCat] = useState<
+    ExtraSportCategory | 'custom' | null
+  >(null);
   const [focusMealForWorkout, setFocusMealForWorkout] = useState<MealLog | null>(null);
   const [activePlaylist, setActivePlaylist] = useState<{
     items: WorkoutPlaylistItem[];
@@ -531,6 +539,95 @@ export const App: React.FC = () => {
     }));
   };
 
+  const handleLogExtraSport = useCallback(
+    (
+      payload: {
+        sportId: string;
+        exerciseName: string;
+        durationSec: number;
+        caloriesBurned: number;
+      },
+      pinPreset?: Omit<FavoriteSportPreset, 'id' | 'createdAt'>
+    ) => {
+      const now = Date.now();
+      const newLog: WorkoutLog = {
+        id: `wo-${now}-${Math.random().toString(36).slice(2, 6)}`,
+        dateKey: selectedDate,
+        exerciseId: payload.sportId,
+        exerciseName: payload.exerciseName,
+        durationSec: payload.durationSec,
+        caloriesBurned: payload.caloriesBurned,
+        createdAt: now,
+      };
+      const newPreset: FavoriteSportPreset | null = pinPreset
+        ? {
+            ...pinPreset,
+            id: `favsport-${now}-${Math.random().toString(36).slice(2, 6)}`,
+            createdAt: now,
+          }
+        : null;
+
+      commitVaultUpdate((prev) => ({
+        ...prev,
+        updatedAt: now,
+        isUneditedDefault: false,
+        workouts: [newLog, ...prev.workouts],
+        favoriteSports: newPreset
+          ? [...(prev.favoriteSports || []), newPreset]
+          : prev.favoriteSports || [],
+        stamps: Array.from(new Set([...prev.stamps, selectedDate])),
+      }));
+      setExtraSportModalCat(null);
+      showToast(
+        newPreset
+          ? `🎉 已記下消耗 🔥 ${payload.caloriesBurned} kcal，並釘選至固定常用運動囉！`
+          : `🎉 已記下「${payload.exerciseName}」消耗 🔥 ${payload.caloriesBurned} kcal 🤎`
+      );
+    },
+    [commitVaultUpdate, selectedDate, showToast]
+  );
+
+  const handleQuickLogFavoriteSport = useCallback(
+    (preset: FavoriteSportPreset, kcal: number) => {
+      soundEngine.unlock();
+      soundEngine.playVictoryFanfare();
+      const now = Date.now();
+      const newLog: WorkoutLog = {
+        id: `wo-${now}-${Math.random().toString(36).slice(2, 6)}`,
+        dateKey: selectedDate,
+        exerciseId: preset.sportId,
+        exerciseName: `${preset.emoji} ${preset.name}`,
+        durationSec: preset.minutes * 60,
+        caloriesBurned: kcal,
+        createdAt: now,
+      };
+      commitVaultUpdate((prev) => ({
+        ...prev,
+        updatedAt: now,
+        isUneditedDefault: false,
+        workouts: [newLog, ...prev.workouts],
+        stamps: Array.from(new Set([...prev.stamps, selectedDate])),
+      }));
+      showToast(`⚡ 1 秒打卡！「${preset.name}」消耗 🔥 ${kcal} kcal 🤎`);
+    },
+    [commitVaultUpdate, selectedDate, showToast]
+  );
+
+  const handleRemoveFavoriteSport = useCallback(
+    (presetId: string) => {
+      const now = Date.now();
+      commitVaultUpdate((prev) => ({
+        ...prev,
+        updatedAt: now,
+        isUneditedDefault: false,
+        favoriteSports: (prev.favoriteSports || []).filter((f) => f.id !== presetId),
+        deletedIds: { ...prev.deletedIds, [presetId]: now },
+      }));
+      showToast('已取消釘選該常用運動');
+    },
+    [commitVaultUpdate, showToast]
+  );
+
   const handleSaveProfileAndKey = (nextProfile: UserProfile, nextApiKey: string) => {
     const now = Date.now();
     commitVaultUpdate((prev) => ({
@@ -625,6 +722,36 @@ export const App: React.FC = () => {
   const diaryCompletedMap = useMemo(
     () => matchCompletedPlanItems(activeDiaryPlan.items, dayWorkouts),
     [activeDiaryPlan.items, dayWorkouts]
+  );
+
+  const energyAdvice = useMemo(
+    () =>
+      computeDailyEnergyAdvice({
+        dailyBudget,
+        eatenKcal,
+        burnedKcal,
+        baseBurnGoal: vault.profile.dailyBurnTargetKcal || 80,
+      }),
+    [dailyBudget, eatenKcal, burnedKcal, vault.profile.dailyBurnTargetKcal]
+  );
+
+  const handleApplyRecommendedBurnToPlan = useCallback(
+    (rawTargetKcal: number) => {
+      const cleanTarget = Math.max(15, Math.min(800, Math.round(rawTargetKcal || 80)));
+      const seed = activeDiaryPlan.variantSeed || 0;
+      const items = buildDailyCalorieTargetPlan(cleanTarget, vault.profile.weightKg, seed);
+      handleSaveDailyPlan(
+        {
+          dateKey: selectedDate,
+          targetKcal: cleanTarget,
+          variantSeed: seed,
+          items,
+          updatedAt: Date.now(),
+        },
+        cleanTarget
+      );
+    },
+    [activeDiaryPlan.variantSeed, vault.profile.weightKg, handleSaveDailyPlan, selectedDate]
   );
 
   const recent7Days = useMemo(() => {
@@ -858,6 +985,18 @@ export const App: React.FC = () => {
                   )}
                 </div>
 
+                {/* Smart Intake vs Recommended Burn + Dance/Ball Sports Quick Log */}
+                <SmartEnergyAdvisorCard
+                  advice={energyAdvice}
+                  weightKg={vault.profile.weightKg}
+                  favoriteSports={vault.favoriteSports || []}
+                  activePlanTargetKcal={activeDiaryPlan.targetKcal}
+                  onApplyRecommendedBurnToPlan={handleApplyRecommendedBurnToPlan}
+                  onOpenExtraSportModal={(cat) => setExtraSportModalCat(cat || 'dance')}
+                  onQuickLogFavoriteSport={handleQuickLogFavoriteSport}
+                  onRemoveFavoriteSport={handleRemoveFavoriteSport}
+                />
+
                 {/* Big Primary CTA in DINOTAENG Vintage Tomato Red */}
                 <button
                   type="button"
@@ -993,16 +1132,25 @@ export const App: React.FC = () => {
                     今日運動目標計畫（🔥 {burnedKcal} / {activeDiaryPlan.targetKcal} kcal）
                   </h3>
                 </div>
-                <button
-                  type="button"
-                  onClick={() => {
-                    setFocusMealForWorkout(null);
-                    setActiveNav('workout');
-                  }}
-                  className="text-xs font-bold text-[#25385B] hover:underline shrink-0"
-                >
-                  調整目標／換動作 →
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setExtraSportModalCat('dance')}
+                    className="px-2 py-1 rounded-lg bg-[#FFF6E2] border border-[#DFC27D] text-[11px] font-black text-[#5C3F2D]"
+                  >
+                    + 💃🏸 記跳舞／打球
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFocusMealForWorkout(null);
+                      setActiveNav('workout');
+                    }}
+                    className="text-xs font-bold text-[#25385B] hover:underline"
+                  >
+                    調整目標／換動作 →
+                  </button>
+                </div>
               </div>
 
               <div className="w-full h-2.5 rounded-full bg-[#E5E0D4] overflow-hidden">
@@ -1144,10 +1292,15 @@ export const App: React.FC = () => {
             dailyBudget={dailyBudget}
             weightKg={vault.profile.weightKg}
             defaultBurnTargetKcal={defaultDayBurnTarget}
+            energyAdvice={energyAdvice}
+            favoriteSports={vault.favoriteSports || []}
             savedDailyPlan={savedPlanForSelectedDate}
             initialFocusMeal={focusMealForWorkout}
             onSaveDailyPlan={handleSaveDailyPlan}
             onQuickTogglePlanItem={handleQuickTogglePlanItem}
+            onOpenExtraSportModal={(cat) => setExtraSportModalCat(cat || 'dance')}
+            onQuickLogFavoriteSport={handleQuickLogFavoriteSport}
+            onRemoveFavoriteSport={handleRemoveFavoriteSport}
             onStartPlaylist={(items, sourceMealId) =>
               setActivePlaylist({ items, sourceMealId })
             }
@@ -1269,6 +1422,16 @@ export const App: React.FC = () => {
           sourceMealId={activePlaylist.sourceMealId}
           onCompleteWorkout={handleCompleteWorkout}
           onClose={() => setActivePlaylist(null)}
+        />
+      )}
+
+      {extraSportModalCat && (
+        <ExtraSportLoggerModal
+          weightKg={vault.profile.weightKg}
+          initialCategory={extraSportModalCat}
+          existingFavorites={vault.favoriteSports || []}
+          onLogExtraSport={handleLogExtraSport}
+          onClose={() => setExtraSportModalCat(null)}
         />
       )}
 

@@ -17,8 +17,13 @@ import {
   createInitialVaultState,
   calculateDailyCalorieBudget,
   calculateExerciseCalories,
+  computeDailyEnergyAdvice,
   DEFAULT_PROFILE,
 } from '../types/tracker';
+import {
+  EXTRA_SPORTS,
+  calculateExtraSportCalories,
+} from '../data/extraSports';
 import {
   buildMealChallengePlaylist,
   buildDailyCalorieTargetPlan,
@@ -452,5 +457,106 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     expect(TAIWAN_FOOD_PRESETS.some((p) => p.id === 'tw-bf-1')).toBe(true);
     expect(TAIWAN_FOOD_PRESETS.some((p) => p.id === 'tw-bt-1')).toBe(true);
     expect(TAIWAN_FOOD_PRESETS.some((p) => p.id === 'tw-fr-4')).toBe(true);
+  });
+
+  it('calculates dancing and ball sports calories by MET, weight, duration, and effort level', () => {
+    const kpop = EXTRA_SPORTS.find((s) => s.id === 'sport_kpop_dance')!;
+    const badminton = EXTRA_SPORTS.find((s) => s.id === 'sport_badminton_double')!;
+    expect(kpop).toBeDefined();
+    expect(badminton).toBeDefined();
+
+    // 54kg * 60min K-pop normal (MET 5.8 * 1.0 * 54 * 1 * 1.05 = 329 kcal)
+    const kpopNormal = calculateExtraSportCalories({
+      met: kpop.met,
+      weightKg: 54,
+      minutes: 60,
+      effort: 'normal',
+    });
+    const kpopLight = calculateExtraSportCalories({
+      met: kpop.met,
+      weightKg: 54,
+      minutes: 60,
+      effort: 'light',
+    });
+    const kpopIntense = calculateExtraSportCalories({
+      met: kpop.met,
+      weightKg: 54,
+      minutes: 60,
+      effort: 'intense',
+    });
+
+    expect(kpopNormal).toBe(329);
+    expect(kpopLight).toBeLessThan(kpopNormal);
+    expect(kpopIntense).toBeGreaterThan(kpopNormal);
+
+    // 54kg * 90min badminton doubles normal
+    const badminton90 = calculateExtraSportCalories({
+      met: badminton.met,
+      weightKg: 54,
+      minutes: 90,
+      effort: 'normal',
+    });
+    expect(badminton90).toBeGreaterThan(450);
+  });
+
+  it('computes smart daily intake vs over-intake vs recommended burn and syncs pinned favorite sports', () => {
+    // Under budget scenario
+    const withinBudget = computeDailyEnergyAdvice({
+      dailyBudget: 1350,
+      eatenKcal: 1100,
+      burnedKcal: 30,
+      baseBurnGoal: 80,
+    });
+    expect(withinBudget.overIntakeKcal).toBe(0);
+    expect(withinBudget.underIntakeKcal).toBe(250);
+    expect(withinBudget.recommendedBurnKcal).toBe(80);
+    expect(withinBudget.remainingBurnNeededKcal).toBe(50);
+    expect(withinBudget.isBurnGoalMet).toBe(false);
+
+    // Over intake scenario (+360 kcal over budget, burned 300 kcal from K-pop class -> 60 kcal remaining!)
+    const overBudget = computeDailyEnergyAdvice({
+      dailyBudget: 1350,
+      eatenKcal: 1710,
+      burnedKcal: 300,
+      baseBurnGoal: 80,
+    });
+    expect(overBudget.overIntakeKcal).toBe(360);
+    expect(overBudget.underIntakeKcal).toBe(0);
+    expect(overBudget.recommendedBurnKcal).toBe(360);
+    expect(overBudget.gentleHalfBurnKcal).toBe(180);
+    expect(overBudget.remainingBurnNeededKcal).toBe(60);
+    expect(overBudget.netCaloriesAfterBurn).toBe(1410);
+
+    // Syncing pinned favorite sports + tombstone unpinning
+    const devA = createInitialVaultState();
+    devA.isUneditedDefault = false;
+    devA.updatedAt = 5000;
+    devA.favoriteSports = [
+      {
+        id: 'fav-kpop-1',
+        sportId: 'sport_kpop_dance',
+        name: 'K-pop 韓團舞／MV 排練',
+        emoji: '💃',
+        minutes: 60,
+        effort: 'normal',
+        met: 5.8,
+        createdAt: 5000,
+      },
+    ];
+
+    const devB = createInitialVaultState();
+    const mergedPinned = mergeVaultStates(devB, devA);
+    expect(mergedPinned.favoriteSports).toHaveLength(1);
+    expect(mergedPinned.favoriteSports?.[0].name).toContain('K-pop');
+
+    // Unpin on devB with tombstone
+    const devBUnpinned = {
+      ...mergedPinned,
+      updatedAt: 7000,
+      favoriteSports: [],
+      deletedIds: { 'fav-kpop-1': 7000 },
+    };
+    const afterUnpin = mergeVaultStates(devBUnpinned, devA);
+    expect(afterUnpin.favoriteSports).toHaveLength(0);
   });
 });

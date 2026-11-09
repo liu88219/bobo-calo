@@ -96,6 +96,31 @@ export interface DailyWorkoutPlan {
   updatedAt: number;
 }
 
+export interface FavoriteSportPreset {
+  id: string;
+  sportId: string;
+  name: string;
+  emoji: string;
+  minutes: number;
+  effort: 'light' | 'normal' | 'intense';
+  met: number;
+  customCalories?: number;
+  createdAt: number;
+}
+
+export interface DailyEnergyAdvice {
+  dailyBudget: number;
+  eatenKcal: number;
+  burnedKcal: number;
+  overIntakeKcal: number;
+  underIntakeKcal: number;
+  recommendedBurnKcal: number;
+  gentleHalfBurnKcal: number;
+  remainingBurnNeededKcal: number;
+  netCaloriesAfterBurn: number;
+  isBurnGoalMet: boolean;
+}
+
 export interface WaterLog {
   id: string;
   dateKey: string;
@@ -116,6 +141,7 @@ export interface VaultState {
   waters: WaterLog[];
   stamps: string[]; // dateKeys or unique stamp IDs earned
   dailyWorkoutPlans?: Record<string, DailyWorkoutPlan>;
+  favoriteSports?: FavoriteSportPreset[];
   deletedIds: Record<string, number>;
 }
 
@@ -145,6 +171,7 @@ export function createInitialVaultState(): VaultState {
     waters: [],
     stamps: [],
     dailyWorkoutPlans: {},
+    favoriteSports: [],
     deletedIds: {},
   };
 }
@@ -222,6 +249,45 @@ export function resolveDailyBurnTargetKcal(
     return surplus > 0 ? Math.max(30, surplus) : baseTarget;
   }
   return baseTarget;
+}
+
+/**
+ * 智慧攝取 vs 建議消耗試算小管家：
+ * 清楚算出「今日需攝取預算」、「已攝取／多攝取多少」、「建議完成多少卡路里消耗」與「扣除已運動後還差多少」
+ */
+export function computeDailyEnergyAdvice(params: {
+  dailyBudget: number;
+  eatenKcal: number;
+  burnedKcal: number;
+  baseBurnGoal?: number;
+}): DailyEnergyAdvice {
+  const dailyBudget = Math.max(1000, Math.round(params.dailyBudget || 1400));
+  const eatenKcal = Math.max(0, Math.round(params.eatenKcal || 0));
+  const burnedKcal = Math.max(0, Math.round(params.burnedKcal || 0));
+  const base = Math.max(30, Math.round(params.baseBurnGoal || 80));
+
+  const overIntakeKcal = Math.max(0, eatenKcal - dailyBudget);
+  const underIntakeKcal = Math.max(0, dailyBudget - eatenKcal);
+
+  const recommendedBurnKcal = overIntakeKcal > 0 ? Math.max(base, overIntakeKcal) : base;
+  const gentleHalfBurnKcal =
+    overIntakeKcal > 200 ? Math.max(base, Math.round(overIntakeKcal * 0.5)) : recommendedBurnKcal;
+  const remainingBurnNeededKcal = Math.max(0, recommendedBurnKcal - burnedKcal);
+  const netCaloriesAfterBurn = eatenKcal - burnedKcal;
+  const isBurnGoalMet = burnedKcal >= recommendedBurnKcal;
+
+  return {
+    dailyBudget,
+    eatenKcal,
+    burnedKcal,
+    overIntakeKcal,
+    underIntakeKcal,
+    recommendedBurnKcal,
+    gentleHalfBurnKcal,
+    remainingBurnNeededKcal,
+    netCaloriesAfterBurn,
+    isBurnGoalMet,
+  };
 }
 
 export const MEAL_CATEGORY_META: Record<
