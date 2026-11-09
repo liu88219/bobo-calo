@@ -30,6 +30,7 @@ import {
   parseTaiwanNutritionLabelText,
   recalculateMealFromEdits,
 } from '../services/geminiService';
+import { TAIWAN_FOOD_PRESETS } from '../data/taiwanFoods';
 
 describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
   it('derives identical deterministic vaultKey across Safari and Standalone PWA for same passcode', async () => {
@@ -438,5 +439,18 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     expect(bottleParsed!.title).toBe('濃厚無加糖黑豆漿');
     expect(bottleParsed!.totalCalories).toBe(212);
     expect(bottleParsed!.proteinG).toBe(20.8);
+  });
+
+  it('includes comprehensive Taiwanese company cafeteria / buffet dishes while preserving all original presets', () => {
+    const buffetItems = TAIWAN_FOOD_PRESETS.filter((p) => p.group === '自助餐夾菜');
+    expect(buffetItems.length).toBeGreaterThanOrEqual(50);
+    expect(buffetItems.some((p) => p.buffetSub === 'staple')).toBe(true);
+    expect(buffetItems.some((p) => p.buffetSub === 'main')).toBe(true);
+    expect(buffetItems.some((p) => p.buffetSub === 'egg_tofu')).toBe(true);
+    expect(buffetItems.some((p) => p.buffetSub === 'veggie')).toBe(true);
+    // Original presets preserved
+    expect(TAIWAN_FOOD_PRESETS.some((p) => p.id === 'tw-bf-1')).toBe(true);
+    expect(TAIWAN_FOOD_PRESETS.some((p) => p.id === 'tw-bt-1')).toBe(true);
+    expect(TAIWAN_FOOD_PRESETS.some((p) => p.id === 'tw-fr-4')).toBe(true);
   });
 });

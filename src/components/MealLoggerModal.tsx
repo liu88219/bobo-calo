@@ -20,7 +20,11 @@ import {
   MEAL_CATEGORY_META,
   getLocalDateKey,
 } from '../types/tracker';
-import { TAIWAN_FOOD_PRESETS, TaiwanFoodPreset } from '../data/taiwanFoods';
+import {
+  TAIWAN_FOOD_PRESETS,
+  TaiwanFoodPreset,
+  BuffetSubType,
+} from '../data/taiwanFoods';
 import { pickMealPraise } from '../data/praiseMessages';
 import {
   analyzeMealWithGemini,
@@ -40,7 +44,11 @@ interface Props {
 }
 
 const QUICK_NOTE_CHIPS = [
+  '自助餐分格盤',
   '白飯吃一半',
+  '紫米/五穀飯半碗',
+  '沒夾飯(無澱粉)',
+  '配菜瀝油',
   '去皮少油',
   '無糖',
   '微糖去冰',
@@ -93,7 +101,8 @@ export const MealLoggerModal: React.FC<Props> = ({
 
   // Offline preset search & custom entry
   const [searchQuery, setSearchQuery] = useState('');
-  const [selectedGroup, setSelectedGroup] = useState<string>('全部');
+  const [selectedGroup, setSelectedGroup] = useState<string>('自助餐夾菜');
+  const [buffetSubFilter, setBuffetSubFilter] = useState<'all' | BuffetSubType>('all');
   const [customName, setCustomName] = useState('');
   const [customCalories, setCustomCalories] = useState('');
 
@@ -296,12 +305,26 @@ export const MealLoggerModal: React.FC<Props> = ({
   }, [items]);
 
   const filteredPresets = useMemo(() => {
+    const tokens = searchQuery
+      .trim()
+      .toLowerCase()
+      .split(/[\s、，,+＋]+/)
+      .filter(Boolean);
+
     return TAIWAN_FOOD_PRESETS.filter((p) => {
-      const matchGroup = selectedGroup === '全部' || p.group === selectedGroup;
-      const matchQ = !searchQuery.trim() || p.name.includes(searchQuery.trim());
-      return matchGroup && matchQ;
+      // 當使用者輸入搜尋關鍵字時，貼心跨全部分類即時搜尋；未輸入時則依目前點選分類與自助餐子分類顯示
+      const matchGroup =
+        tokens.length > 0 ? true : selectedGroup === '全部' || p.group === selectedGroup;
+      const matchSub =
+        tokens.length > 0 ||
+        selectedGroup !== '自助餐夾菜' ||
+        buffetSubFilter === 'all' ||
+        p.buffetSub === buffetSubFilter;
+      const hay = `${p.name} ${p.portion} ${p.group}`.toLowerCase();
+      const matchQ = tokens.length === 0 || tokens.every((tk) => hay.includes(tk));
+      return matchGroup && matchSub && matchQ;
     });
-  }, [selectedGroup, searchQuery]);
+  }, [selectedGroup, buffetSubFilter, searchQuery]);
 
   const handleFinalize = async (launchExerciseAfter: boolean) => {
     let validItems = items.filter((i) => i.name.trim().length > 0);
@@ -490,8 +513,13 @@ export const MealLoggerModal: React.FC<Props> = ({
               </div>
             )}
 
-            <div className="px-3 py-2 rounded-xl bg-[#FAF4EB] border border-[#E5CFB3] text-[11px] text-[#5C5044] leading-relaxed">
-              💡 <b>拍包裝背面小撇步：</b>已支援高清直讀「<b>營養標示＆成分表</b>」！若包裝背面沒印商品名稱，可在下方順手打上品名（如：無糖黑豆漿），熱量數字會 100% 依背面表格精算喔 ✨
+            <div className="px-3 py-2 rounded-xl bg-[#FAF4EB] border border-[#E5CFB3] text-[11px] text-[#5C5044] leading-relaxed space-y-1">
+              <div>
+                🍱 <b>拍公司自助餐盤秒準秘訣：</b>手機從<b>正上方平拍整盤</b>（拍出分格大小比例）、<b>飯與主菜別疊在一起蓋住</b>，若有深色滷汁或勾芡順手點下方標籤或補 2 個字最準！
+              </div>
+              <div>
+                📦 <b>拍包裝背面：</b>支援高清直讀「<b>營養標示＆成分表</b>」（背面若沒印品名可順手打在下方備註欄 ✨）
+              </div>
             </div>
 
             {/* Initial description + quick chips */}
@@ -547,44 +575,79 @@ export const MealLoggerModal: React.FC<Props> = ({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                placeholder="搜尋蛋餅、雞腿便當、珍奶、地瓜..."
+                placeholder="搜尋高麗菜、蒸蛋、鯖魚、紫米飯、雞腿、蛋餅..."
                 className="w-full pl-9 pr-3 py-2 rounded-xl border border-[#D8D2C5] bg-white text-sm focus:outline-none focus:border-[#C83B32]"
               />
             </div>
 
             <div className="flex gap-1.5 overflow-x-auto pb-1">
-              {['全部', '早餐店', '便當小吃', '超商輕食', '手搖咖啡', '鍋物聚餐', '水果點心'].map(
-                (grp) => (
-                  <button
-                    key={grp}
-                    type="button"
-                    onClick={() => setSelectedGroup(grp)}
-                    className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
-                      selectedGroup === grp
-                        ? 'bg-[#25385B] text-white'
-                        : 'bg-[#EFECE3] text-[#4A3F35]'
-                    }`}
-                  >
-                    {grp}
-                  </button>
-                )
-              )}
+              {[
+                '全部',
+                '自助餐夾菜',
+                '早餐店',
+                '便當小吃',
+                '超商輕食',
+                '手搖咖啡',
+                '鍋物聚餐',
+                '水果點心',
+              ].map((grp) => (
+                <button
+                  key={grp}
+                  type="button"
+                  onClick={() => setSelectedGroup(grp)}
+                  className={`px-2.5 py-1 rounded-full text-xs font-bold whitespace-nowrap ${
+                    selectedGroup === grp
+                      ? 'bg-[#25385B] text-white'
+                      : 'bg-[#EFECE3] text-[#4A3F35]'
+                  }`}
+                >
+                  {grp === '自助餐夾菜' ? '🍱 自助餐夾菜' : grp}
+                </button>
+              ))}
             </div>
 
-            <div className="max-h-44 overflow-y-auto space-y-1.5 pr-1">
+            {selectedGroup === '自助餐夾菜' && (
+              <div className="flex gap-1.5 overflow-x-auto pb-0.5">
+                {[
+                  { id: 'all' as const, label: '✨ 全部夾菜 (52)' },
+                  { id: 'staple' as const, label: '🍚 飯麵＆例湯' },
+                  { id: 'main' as const, label: '🍗 主菜肉魚' },
+                  { id: 'egg_tofu' as const, label: '🥚 蛋＆豆腐豆干' },
+                  { id: 'veggie' as const, label: '🥬 炒青菜＆配菜' },
+                ].map((sub) => (
+                  <button
+                    key={sub.id}
+                    type="button"
+                    onClick={() => setBuffetSubFilter(sub.id)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold whitespace-nowrap border transition ${
+                      buffetSubFilter === sub.id
+                        ? 'bg-[#F3C85F] border-[#2C241E] text-[#2C241E]'
+                        : 'bg-[#FAF8F3] border-[#DDD7C9] text-[#5C5145]'
+                    }`}
+                  >
+                    {sub.label}
+                  </button>
+                ))}
+              </div>
+            )}
+
+            <div className="max-h-60 overflow-y-auto space-y-1.5 pr-1">
               {filteredPresets.map((food) => (
                 <div
                   key={food.id}
-                  className="flex items-center justify-between p-2.5 rounded-xl bg-[#EFECE3]"
+                  className="flex items-center justify-between p-2.5 rounded-xl bg-[#EFECE3] gap-2"
                 >
-                  <div>
-                    <div className="text-xs font-bold text-[#2C241E]">{food.name}</div>
+                  <div className="min-w-0">
+                    <div className="text-xs font-bold text-[#2C241E] truncate">{food.name}</div>
                     <div className="text-[11px] text-[#6E6459]">
                       {food.portion} ·{' '}
                       <span className="font-bold text-[#C83B32]">{food.calories} kcal</span>
+                      <span className="text-[10px] text-[#8A7E70] ml-1.5">
+                        (P {food.proteinG}g)
+                      </span>
                     </div>
                   </div>
-                  <div className="flex gap-1">
+                  <div className="flex gap-1 shrink-0">
                     <button
                       type="button"
                       onClick={() => addPresetFood(food, 0.5)}
@@ -598,6 +661,14 @@ export const MealLoggerModal: React.FC<Props> = ({
                       className="px-2.5 py-1 rounded-lg bg-[#485F44] text-white text-[11px] font-bold"
                     >
                       +1份
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => addPresetFood(food, 2)}
+                      className="px-2 py-1 rounded-lg bg-[#F3C85F]/70 text-[#2C241E] text-[11px] font-bold"
+                      title="夾了兩格或雙倍份量"
+                    >
+                      +2份
                     </button>
                   </div>
                 </div>
