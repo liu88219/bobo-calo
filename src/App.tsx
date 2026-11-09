@@ -14,6 +14,10 @@ import {
   PencilLine,
   Eye,
   EyeOff,
+  CheckCircle2,
+  Circle,
+  Play,
+  Target,
 } from 'lucide-react';
 import {
   VaultState,
@@ -21,12 +25,22 @@ import {
   WorkoutLog,
   WaterLog,
   WorkoutPlaylistItem,
+  DailyWorkoutPlan,
+  DailyWorkoutPlanItem,
   UserProfile,
   MEAL_CATEGORY_META,
   createInitialVaultState,
   getLocalDateKey,
   calculateDailyCalorieBudget,
+  calculateExerciseCalories,
+  resolveDailyBurnTargetKcal,
 } from './types/tracker';
+import {
+  buildDailyCalorieTargetPlan,
+  getExerciseById,
+  matchCompletedPlanItems,
+} from './data/exercises';
+import { soundEngine } from './services/soundEffects';
 import { getDailyGreeting } from './data/praiseMessages';
 import {
   requestPersistentStorage,
@@ -415,6 +429,7 @@ export const App: React.FC = () => {
         durationSec: number;
         caloriesBurned: number;
         sourceMealId?: string;
+        planItemId?: string;
       }>
     ) => {
       const now = Date.now();
@@ -427,6 +442,7 @@ export const App: React.FC = () => {
         durationSec: item.durationSec,
         caloriesBurned: item.caloriesBurned,
         sourceMealId: item.sourceMealId,
+        planItemId: item.planItemId,
         createdAt: now + idx,
       }));
       commitVaultUpdate((prev) => ({
@@ -438,6 +454,70 @@ export const App: React.FC = () => {
       }));
     },
     [commitVaultUpdate, selectedDate]
+  );
+
+  const handleSaveDailyPlan = useCallback(
+    (plan: DailyWorkoutPlan, nextDefaultTargetKcal?: number) => {
+      const now = Date.now();
+      commitVaultUpdate((prev) => ({
+        ...prev,
+        updatedAt: now,
+        settingsUpdatedAt: nextDefaultTargetKcal ? now : prev.settingsUpdatedAt,
+        isUneditedDefault: false,
+        profile: nextDefaultTargetKcal
+          ? { ...prev.profile, dailyBurnTargetKcal: nextDefaultTargetKcal }
+          : prev.profile,
+        dailyWorkoutPlans: {
+          ...(prev.dailyWorkoutPlans || {}),
+          [plan.dateKey]: { ...plan, updatedAt: now },
+        },
+      }));
+      showToast(`🎯 已為妳制定 ${plan.targetKcal} kcal 專屬運動清單！`);
+    },
+    [commitVaultUpdate, showToast]
+  );
+
+  const handleQuickTogglePlanItem = useCallback(
+    (item: DailyWorkoutPlanItem, existingMatchedLog?: WorkoutLog) => {
+      const now = Date.now();
+      if (existingMatchedLog) {
+        commitVaultUpdate((prev) => ({
+          ...prev,
+          updatedAt: now,
+          isUneditedDefault: false,
+          workouts: prev.workouts.filter((w) => w.id !== existingMatchedLog.id),
+          deletedIds: { ...prev.deletedIds, [existingMatchedLog.id]: now },
+        }));
+        showToast('已取消該項運動打卡');
+        return;
+      }
+
+      const def = getExerciseById(item.exerciseId);
+      const kcal = calculateExerciseCalories(
+        def.met,
+        vaultRef.current.profile.weightKg,
+        item.durationSec
+      );
+      const newLog: WorkoutLog = {
+        id: `wo-${now}-${Math.random().toString(36).slice(2, 6)}`,
+        dateKey: selectedDate,
+        exerciseId: def.id,
+        exerciseName: def.name,
+        durationSec: item.durationSec,
+        caloriesBurned: kcal,
+        planItemId: item.id,
+        createdAt: now,
+      };
+      commitVaultUpdate((prev) => ({
+        ...prev,
+        updatedAt: now,
+        isUneditedDefault: false,
+        workouts: [newLog, ...prev.workouts],
+        stamps: Array.from(new Set([...prev.stamps, selectedDate])),
+      }));
+      showToast(`🎉 完成「${def.name}」！消耗 🔥 ${kcal} kcal，妳超棒 🤎`);
+    },
+    [commitVaultUpdate, selectedDate, showToast]
   );
 
   const handleDeleteWorkout = (id: string) => {
@@ -520,6 +600,31 @@ export const App: React.FC = () => {
   const greeting = useMemo(
     () => getDailyGreeting(vault.profile.nickname),
     [vault.profile.nickname]
+  );
+
+  const defaultDayBurnTarget = useMemo(
+    () => resolveDailyBurnTargetKcal(vault.profile, eatenKcal, dailyBudget),
+    [vault.profile, eatenKcal, dailyBudget]
+  );
+
+  const savedPlanForSelectedDate = vault.dailyWorkoutPlans?.[selectedDate];
+
+  const activeDiaryPlan = useMemo<DailyWorkoutPlan>(() => {
+    if (savedPlanForSelectedDate && savedPlanForSelectedDate.items.length > 0) {
+      return savedPlanForSelectedDate;
+    }
+    return {
+      dateKey: selectedDate,
+      targetKcal: defaultDayBurnTarget,
+      variantSeed: 0,
+      items: buildDailyCalorieTargetPlan(defaultDayBurnTarget, vault.profile.weightKg, 0),
+      updatedAt: 0,
+    };
+  }, [savedPlanForSelectedDate, selectedDate, defaultDayBurnTarget, vault.profile.weightKg]);
+
+  const diaryCompletedMap = useMemo(
+    () => matchCompletedPlanItems(activeDiaryPlan.items, dayWorkouts),
+    [activeDiaryPlan.items, dayWorkouts]
   );
 
   const recent7Days = useMemo(() => {
@@ -879,6 +984,119 @@ export const App: React.FC = () => {
               )}
             </div>
 
+            {/* Daily Target Calorie Workout Plan Card on Diary */}
+            <div className="doodle-card p-4 space-y-3">
+              <div className="flex items-center justify-between gap-2">
+                <div className="flex items-center gap-1.5">
+                  <Target className="w-4 h-4 text-[#C83B32]" />
+                  <h3 className="font-black text-sm text-[#2C241E]">
+                    今日運動目標計畫（🔥 {burnedKcal} / {activeDiaryPlan.targetKcal} kcal）
+                  </h3>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    setFocusMealForWorkout(null);
+                    setActiveNav('workout');
+                  }}
+                  className="text-xs font-bold text-[#25385B] hover:underline shrink-0"
+                >
+                  調整目標／換動作 →
+                </button>
+              </div>
+
+              <div className="w-full h-2.5 rounded-full bg-[#E5E0D4] overflow-hidden">
+                <div
+                  className="h-full rounded-full bg-gradient-to-r from-[#6D8B67] via-[#F3C85F] to-[#C83B32] transition-all duration-500"
+                  style={{
+                    width: `${Math.min(
+                      100,
+                      Math.round((burnedKcal / Math.max(1, activeDiaryPlan.targetKcal)) * 100)
+                    )}%`,
+                  }}
+                />
+              </div>
+
+              <div className="space-y-1.5">
+                {activeDiaryPlan.items.map((item, idx) => {
+                  const def = getExerciseById(item.exerciseId);
+                  const kcal = calculateExerciseCalories(
+                    def.met,
+                    vault.profile.weightKg,
+                    item.durationSec
+                  );
+                  const matched = diaryCompletedMap[item.id];
+                  const isDone = Boolean(matched);
+                  const mins = Math.round((item.durationSec / 60) * 10) / 10;
+
+                  return (
+                    <div
+                      key={item.id}
+                      className={`flex items-center justify-between gap-2 p-2.5 rounded-xl border transition ${
+                        isDone
+                          ? 'bg-[#E3F1DF]/65 border-[#8FBC8B]'
+                          : 'bg-[#FAF4EB] border-[#E5CFB3]'
+                      }`}
+                    >
+                      <button
+                        type="button"
+                        onClick={() => {
+                          if (!isDone) {
+                            soundEngine.unlock();
+                            soundEngine.playVictoryFanfare();
+                          }
+                          handleQuickTogglePlanItem(item, matched);
+                        }}
+                        className="flex items-center gap-2 text-left min-w-0 flex-1"
+                      >
+                        {isDone ? (
+                          <CheckCircle2 className="w-4 h-4 text-[#355E30] shrink-0" />
+                        ) : (
+                          <Circle className="w-4 h-4 text-[#8A7E70] shrink-0" />
+                        )}
+                        <div className="min-w-0">
+                          <div
+                            className={`text-xs font-black truncate ${
+                              isDone ? 'text-[#2F522B] line-through' : 'text-[#422B1D]'
+                            }`}
+                          >
+                            {idx + 1}. {def.name}
+                          </div>
+                          <div className="text-[10px] text-[#7C5841]">
+                            {mins} 分鐘 · 🔥 {kcal} kcal
+                          </div>
+                        </div>
+                      </button>
+
+                      {!isDone ? (
+                        <button
+                          type="button"
+                          onClick={() =>
+                            setActivePlaylist({
+                              items: [
+                                {
+                                  exerciseId: item.exerciseId,
+                                  durationSec: item.durationSec,
+                                  planItemId: item.id,
+                                },
+                              ],
+                            })
+                          }
+                          className="px-2.5 py-1 rounded-xl bg-[#C83B32] text-white text-[11px] font-black flex items-center gap-1 shrink-0"
+                        >
+                          <Play className="w-3 h-3 fill-current" /> 跟練
+                        </button>
+                      ) : (
+                        <span className="text-[11px] font-black text-[#355E30] shrink-0">
+                          ✓ 已完成
+                        </span>
+                      )}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
             {/* Completed Workouts Today */}
             {dayWorkouts.length > 0 && (
               <div className="doodle-card p-4 space-y-2.5">
@@ -919,9 +1137,17 @@ export const App: React.FC = () => {
 
         {activeNav === 'workout' && (
           <WorkoutPlannerView
+            dateKey={selectedDate}
             todayMeals={dayMeals}
+            dayWorkouts={dayWorkouts}
+            eatenKcal={eatenKcal}
+            dailyBudget={dailyBudget}
             weightKg={vault.profile.weightKg}
+            defaultBurnTargetKcal={defaultDayBurnTarget}
+            savedDailyPlan={savedPlanForSelectedDate}
             initialFocusMeal={focusMealForWorkout}
+            onSaveDailyPlan={handleSaveDailyPlan}
+            onQuickTogglePlanItem={handleQuickTogglePlanItem}
             onStartPlaylist={(items, sourceMealId) =>
               setActivePlaylist({ items, sourceMealId })
             }

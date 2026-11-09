@@ -3,6 +3,7 @@ import {
   MealLog,
   WorkoutLog,
   WaterLog,
+  DailyWorkoutPlan,
   createInitialVaultState,
   getLocalDateKey,
 } from '../types/tracker';
@@ -220,6 +221,10 @@ export function parseVaultJson(raw: string | null | undefined): VaultState | nul
       workouts: Array.isArray(parsed.workouts) ? parsed.workouts : [],
       waters: Array.isArray(parsed.waters) ? parsed.waters : [],
       stamps: Array.isArray(parsed.stamps) ? parsed.stamps : [],
+      dailyWorkoutPlans:
+        parsed.dailyWorkoutPlans && typeof parsed.dailyWorkoutPlans === 'object'
+          ? parsed.dailyWorkoutPlans
+          : {},
       deletedIds: parsed.deletedIds || {},
     };
   } catch {
@@ -547,8 +552,20 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
 
   const mergedStamps = Array.from(new Set([...(remote.stamps || []), ...(local.stamps || [])]));
 
+  const mergedPlans: Record<string, DailyWorkoutPlan> = {
+    ...(remote.dailyWorkoutPlans || {}),
+  };
+  for (const [dk, plan] of Object.entries(local.dailyWorkoutPlans || {})) {
+    const prev = mergedPlans[dk];
+    if (!prev || (plan.updatedAt || 0) >= (prev.updatedAt || 0)) {
+      mergedPlans[dk] = plan;
+    }
+  }
+
   const localSettingsNewer = (local.settingsUpdatedAt || 0) >= (remote.settingsUpdatedAt || 0);
-  const profile = localSettingsNewer ? local.profile : remote.profile;
+  const profile = localSettingsNewer
+    ? { ...remote.profile, ...local.profile }
+    : { ...local.profile, ...remote.profile };
   const geminiApiKey = localSettingsNewer
     ? local.geminiApiKey || remote.geminiApiKey
     : remote.geminiApiKey || local.geminiApiKey;
@@ -561,7 +578,8 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
     maxUpdatedAt > 0 ||
     mergedMeals.length > 0 ||
     mergedWaters.length > 0 ||
-    mergedWorkouts.length > 0;
+    mergedWorkouts.length > 0 ||
+    Object.keys(mergedPlans).length > 0;
 
   return {
     version: 1,
@@ -574,6 +592,7 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
     workouts: mergedWorkouts,
     waters: mergedWaters,
     stamps: mergedStamps,
+    dailyWorkoutPlans: mergedPlans,
     deletedIds,
   };
 }

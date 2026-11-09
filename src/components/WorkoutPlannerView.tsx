@@ -1,8 +1,23 @@
-import React, { useMemo, useState } from 'react';
-import { Play, Plus, Minus, Sparkles, Flame, Trash2, Music } from 'lucide-react';
+import React, { useEffect, useMemo, useState } from 'react';
+import {
+  Play,
+  Plus,
+  Minus,
+  Sparkles,
+  Flame,
+  Trash2,
+  Music,
+  CheckCircle2,
+  Circle,
+  Dices,
+  Target,
+} from 'lucide-react';
 import {
   MealLog,
+  WorkoutLog,
   WorkoutPlaylistItem,
+  DailyWorkoutPlan,
+  DailyWorkoutPlanItem,
   ExerciseCategory,
   calculateExerciseCalories,
 } from '../types/tracker';
@@ -10,24 +25,184 @@ import {
   EXERCISES,
   ChallengeIntensity,
   buildMealChallengePlaylist,
+  buildDailyCalorieTargetPlan,
+  matchCompletedPlanItems,
   getExerciseById,
 } from '../data/exercises';
-import { ExerciseAnimationStage } from './QuokkaBoboArt';
+import { soundEngine } from '../services/soundEffects';
+import { ExerciseAnimationStage, MarshmallowStampBadge } from './QuokkaBoboArt';
 
 interface Props {
+  dateKey: string;
   todayMeals: MealLog[];
+  dayWorkouts: WorkoutLog[];
+  eatenKcal: number;
+  dailyBudget: number;
   weightKg: number;
+  defaultBurnTargetKcal: number;
+  savedDailyPlan?: DailyWorkoutPlan;
   initialFocusMeal?: MealLog | null;
+  onSaveDailyPlan: (plan: DailyWorkoutPlan, nextDefaultTargetKcal?: number) => void;
+  onQuickTogglePlanItem: (
+    item: DailyWorkoutPlanItem,
+    existingMatchedLog?: WorkoutLog
+  ) => void;
   onStartPlaylist: (playlist: WorkoutPlaylistItem[], sourceMealId?: string) => void;
 }
 
 export const WorkoutPlannerView: React.FC<Props> = ({
+  dateKey,
   todayMeals,
+  dayWorkouts,
+  eatenKcal,
+  dailyBudget,
   weightKg,
+  defaultBurnTargetKcal,
+  savedDailyPlan,
   initialFocusMeal,
+  onSaveDailyPlan,
+  onQuickTogglePlanItem,
   onStartPlaylist,
 }) => {
-  const [plannerMode, setPlannerMode] = useState<'combo' | 'pick'>('combo');
+  const [plannerMode, setPlannerMode] = useState<'daily_target' | 'combo' | 'pick'>(() =>
+    initialFocusMeal ? 'combo' : 'daily_target'
+  );
+
+  useEffect(() => {
+    if (initialFocusMeal) {
+      setPlannerMode('combo');
+      setSelectedMealId(initialFocusMeal.id);
+      setIntensity('gentle_25');
+    }
+  }, [initialFocusMeal]);
+
+  // === Mode 0 (NEW): Daily Target Calorie Plan & Completion Checklist ===
+  const activeDailyPlan = useMemo<DailyWorkoutPlan>(() => {
+    if (savedDailyPlan && savedDailyPlan.items.length > 0) {
+      return savedDailyPlan;
+    }
+    const target = Math.max(20, Math.round(defaultBurnTargetKcal || 80));
+    return {
+      dateKey,
+      targetKcal: target,
+      variantSeed: 0,
+      items: buildDailyCalorieTargetPlan(target, weightKg, 0),
+      updatedAt: 0,
+    };
+  }, [savedDailyPlan, defaultBurnTargetKcal, dateKey, weightKg]);
+
+  const [targetInputStr, setTargetInputStr] = useState<string>(() =>
+    String(activeDailyPlan.targetKcal)
+  );
+
+  useEffect(() => {
+    setTargetInputStr(String(activeDailyPlan.targetKcal));
+  }, [dateKey, activeDailyPlan.targetKcal]);
+
+  const matchedCompletedMap = useMemo(
+    () => matchCompletedPlanItems(activeDailyPlan.items, dayWorkouts),
+    [activeDailyPlan.items, dayWorkouts]
+  );
+
+  const burnedTodayKcal = useMemo(
+    () => dayWorkouts.reduce((sum, w) => sum + w.caloriesBurned, 0),
+    [dayWorkouts]
+  );
+
+  const plannedTotalStats = useMemo(() => {
+    let totalSec = 0;
+    let totalKcal = 0;
+    let completedCount = 0;
+    for (const item of activeDailyPlan.items) {
+      const def = getExerciseById(item.exerciseId);
+      totalSec += item.durationSec;
+      totalKcal += calculateExerciseCalories(def.met, weightKg, item.durationSec);
+      if (matchedCompletedMap[item.id]) {
+        completedCount += 1;
+      }
+    }
+    return { totalSec, totalKcal, completedCount };
+  }, [activeDailyPlan.items, weightKg, matchedCompletedMap]);
+
+  const uncompletedPlaylist = useMemo<WorkoutPlaylistItem[]>(() => {
+    return activeDailyPlan.items
+      .filter((it) => !matchedCompletedMap[it.id])
+      .map((it) => ({
+        exerciseId: it.exerciseId,
+        durationSec: it.durationSec,
+        planItemId: it.id,
+      }));
+  }, [activeDailyPlan.items, matchedCompletedMap]);
+
+  const uncompletedStats = useMemo(() => {
+    const sec = uncompletedPlaylist.reduce((s, x) => s + x.durationSec, 0);
+    const kcal = uncompletedPlaylist.reduce(
+      (s, x) =>
+        s + calculateExerciseCalories(getExerciseById(x.exerciseId).met, weightKg, x.durationSec),
+      0
+    );
+    return { sec, kcal };
+  }, [uncompletedPlaylist, weightKg]);
+
+  const applyNewDailyTarget = (rawKcal: number, nextSeed = activeDailyPlan.variantSeed) => {
+    const cleanTarget = Math.max(15, Math.min(800, Math.round(rawKcal || 80)));
+    setTargetInputStr(String(cleanTarget));
+    const newItems = buildDailyCalorieTargetPlan(cleanTarget, weightKg, nextSeed);
+    onSaveDailyPlan(
+      {
+        dateKey,
+        targetKcal: cleanTarget,
+        variantSeed: nextSeed,
+        items: newItems,
+        updatedAt: Date.now(),
+      },
+      cleanTarget
+    );
+  };
+
+  const handleRegenerateFromInput = () => {
+    const parsed = Number.parseInt(targetInputStr, 10);
+    if (!Number.isFinite(parsed) || parsed < 15) {
+      applyNewDailyTarget(80, activeDailyPlan.variantSeed);
+      return;
+    }
+    applyNewDailyTarget(parsed, activeDailyPlan.variantSeed);
+  };
+
+  const handleShuffleDailyPlan = () => {
+    const nextSeed = (activeDailyPlan.variantSeed || 0) + 1;
+    applyNewDailyTarget(activeDailyPlan.targetKcal, nextSeed);
+  };
+
+  const handleAdjustPlanItemSec = (itemId: string, deltaSec: number) => {
+    const updatedItems = activeDailyPlan.items
+      .map((it) =>
+        it.id === itemId
+          ? { ...it, durationSec: Math.min(360, Math.max(30, it.durationSec + deltaSec)) }
+          : it
+      );
+    const nextTotalKcal = updatedItems.reduce(
+      (sum, it) =>
+        sum + calculateExerciseCalories(getExerciseById(it.exerciseId).met, weightKg, it.durationSec),
+      0
+    );
+    onSaveDailyPlan({
+      ...activeDailyPlan,
+      dateKey,
+      targetKcal: nextTotalKcal,
+      items: updatedItems,
+      updatedAt: Date.now(),
+    });
+  };
+
+  const surplusKcal = Math.max(0, Math.round(eatenKcal - dailyBudget));
+  const dailyBurnPct = Math.min(
+    100,
+    Math.round((burnedTodayKcal / Math.max(1, activeDailyPlan.targetKcal)) * 100)
+  );
+  const remainingBurnToGoal = Math.max(0, activeDailyPlan.targetKcal - burnedTodayKcal);
+
+  // === Mode 1 (Existing): Combo & Post-Meal Menu ===
   const [selectedMealId, setSelectedMealId] = useState<string>(
     initialFocusMeal?.id || todayMeals[0]?.id || 'custom'
   );
@@ -36,7 +211,7 @@ export const WorkoutPlannerView: React.FC<Props> = ({
     initialFocusMeal ? 'gentle_25' : 'quick_4min_arm_bed'
   );
 
-  // Mode 2: Pick & Mix Cart (default 4-min exercises!)
+  // === Mode 2 (Existing): Pick & Mix Cart (default 4-min exercises!) ===
   const [pickTargetKcalInput, setPickTargetKcalInput] = useState<string>(() =>
     String(initialFocusMeal ? Math.max(40, Math.round(initialFocusMeal.totalCalories * 0.25)) : 60)
   );
@@ -118,31 +293,342 @@ export const WorkoutPlannerView: React.FC<Props> = ({
 
   return (
     <div className="space-y-4">
-      {/* Mode Switcher */}
-      <div className="doodle-card p-3">
-        <div className="flex rounded-2xl bg-[#EFECE3] p-1">
+      {/* 3-Tab Mode Switcher (Additive: Daily Calorie Plan + Meal Combo + 4-Min Gallery) */}
+      <div className="doodle-card p-2.5">
+        <div className="grid grid-cols-3 rounded-2xl bg-[#EFECE3] p-1 gap-1">
+          <button
+            type="button"
+            onClick={() => setPlannerMode('daily_target')}
+            className={`py-2.5 px-1.5 rounded-xl text-[11px] font-black transition ${
+              plannerMode === 'daily_target'
+                ? 'bg-[#F3C85F] text-[#2C241E] shadow-sm border border-[#2C241E]/30'
+                : 'text-[#4A3F35]'
+            }`}
+          >
+            🎯 每日目標計畫
+          </button>
           <button
             type="button"
             onClick={() => setPlannerMode('combo')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-black transition ${
+            className={`py-2.5 px-1.5 rounded-xl text-[11px] font-black transition ${
               plannerMode === 'combo' ? 'bg-[#C83B32] text-white shadow-sm' : 'text-[#4A3F35]'
             }`}
           >
-            ✨ 4分鐘懶人跟練＆餐後菜單
+            ✨ 4分鐘／餐後配
           </button>
           <button
             type="button"
             onClick={() => setPlannerMode('pick')}
-            className={`flex-1 py-2.5 rounded-xl text-xs font-black transition ${
+            className={`py-2.5 px-1.5 rounded-xl text-[11px] font-black transition ${
               plannerMode === 'pick' ? 'bg-[#25385B] text-white shadow-sm' : 'text-[#4A3F35]'
             }`}
           >
-            💪 手部／床上 4分鐘圖鑑
+            💪 4分鐘動作圖鑑
           </button>
         </div>
       </div>
 
-      {plannerMode === 'combo' ? (
+      {plannerMode === 'daily_target' ? (
+        /* === NEW Mode 0: Daily Target Calorie Plan & Completion Checklist === */
+        <div className="doodle-card p-4 space-y-4">
+          <div className="flex items-start justify-between gap-2">
+            <div>
+              <h3 className="font-black text-base text-[#2C241E] flex items-center gap-1.5">
+                <Target className="w-4 h-4 text-[#C83B32]" />
+                今日目標卡路里運動計畫＆打卡清單
+              </h3>
+              <p className="text-xs text-[#6E6459] mt-0.5">
+                輸入今天想消耗的大卡，自動幫妳配好簡短 4 分鐘手部＋床上運動，逐項跟練或直接打勾完成！
+              </p>
+            </div>
+          </div>
+
+          {/* Target Calorie Input + Quick Presets */}
+          <div className="rounded-2xl bg-[#EFECE3] p-3.5 space-y-3">
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <label className="text-xs font-black text-[#2C241E]">
+                🔥 設定今日想消耗的卡路里：
+              </label>
+              <div className="flex items-center gap-1.5">
+                <input
+                  type="text"
+                  inputMode="numeric"
+                  placeholder="80"
+                  value={targetInputStr}
+                  onChange={(e) => setTargetInputStr(e.target.value.replace(/[^0-9]/g, ''))}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter') handleRegenerateFromInput();
+                  }}
+                  className="w-20 px-2.5 py-1.5 rounded-xl border border-[#D8D2C5] bg-white text-sm font-black text-center text-[#C83B32] focus:outline-none focus:border-[#2C241E]"
+                />
+                <span className="text-xs font-bold text-[#5C5145]">kcal</span>
+                <button
+                  type="button"
+                  onClick={handleRegenerateFromInput}
+                  className="px-3 py-1.5 rounded-xl bg-[#2C241E] text-white text-xs font-black active:scale-95 transition"
+                >
+                  制定項目
+                </button>
+              </div>
+            </div>
+
+            {/* Quick Calorie Target Chips */}
+            <div className="flex flex-wrap gap-1.5">
+              {[
+                { kcal: 50, label: '🌱 50 kcal 溫柔維持' },
+                { kcal: 80, label: '✨ 80 kcal 每日雕塑' },
+                { kcal: 120, label: '🌤️ 120 kcal 活力微汗' },
+                { kcal: 180, label: '🔥 180 kcal 進階燃脂' },
+              ].map((preset) => {
+                const active = activeDailyPlan.targetKcal === preset.kcal;
+                return (
+                  <button
+                    key={preset.kcal}
+                    type="button"
+                    onClick={() => applyNewDailyTarget(preset.kcal)}
+                    className={`px-2.5 py-1 rounded-full text-[11px] font-bold border transition ${
+                      active
+                        ? 'bg-[#F3C85F] border-[#2C241E] text-[#2C241E]'
+                        : 'bg-[#FAF8F3] border-[#DDD7C9] text-[#5C5145]'
+                    }`}
+                  >
+                    {preset.label}
+                  </button>
+                );
+              })}
+
+              {surplusKcal > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => applyNewDailyTarget(surplusKcal)}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-black bg-[#FCE1DC] border border-[#C83B32] text-[#7D362B]"
+                >
+                  🍱 補齊今日超標 {surplusKcal} kcal
+                </button>
+              ) : eatenKcal > 0 ? (
+                <button
+                  type="button"
+                  onClick={() => applyNewDailyTarget(Math.max(40, Math.round(eatenKcal * 0.2)))}
+                  className="px-2.5 py-1 rounded-full text-[11px] font-bold bg-[#E3F1DF] border border-[#8FBC8B] text-[#355E30]"
+                >
+                  🍱 抵銷今日飲食 20% ({Math.max(40, Math.round(eatenKcal * 0.2))} kcal)
+                </button>
+              ) : null}
+            </div>
+          </div>
+
+          {/* Live Daily Burn Progress Bar */}
+          <div className="rounded-2xl bg-[#FAF8F3] border border-[#DDD7C9] p-3.5 space-y-2">
+            <div className="flex items-center justify-between">
+              <div className="text-xs font-black text-[#2C241E]">
+                今日進度：已完成 {plannedTotalStats.completedCount} / {activeDailyPlan.items.length} 項
+              </div>
+              <div className="text-sm font-black text-[#C83B32]">
+                🔥 已消耗 {burnedTodayKcal} / {activeDailyPlan.targetKcal} kcal
+              </div>
+            </div>
+
+            <div className="w-full h-3 rounded-full bg-[#E5E0D4] overflow-hidden">
+              <div
+                className="h-full rounded-full bg-gradient-to-r from-[#6D8B67] via-[#F3C85F] to-[#C83B32] transition-all duration-500"
+                style={{ width: `${dailyBurnPct}%` }}
+              />
+            </div>
+
+            <div className="flex items-center justify-between text-[11px] text-[#6E6459]">
+              {remainingBurnToGoal === 0 ? (
+                <span className="font-bold text-[#355E30]">
+                  🎉 太強啦！今天設定的 {activeDailyPlan.targetKcal} kcal 消耗目標已經 100% 達標囉！
+                </span>
+              ) : (
+                <span>
+                  距離今日目標還差 <b className="text-[#C83B32]">{remainingBurnToGoal} kcal</b>，跟著下面項目一項一項完成吧 🤎
+                </span>
+              )}
+              {remainingBurnToGoal === 0 && <MarshmallowStampBadge label="目標達成！" />}
+            </div>
+          </div>
+
+          {/* Formulated Exercise Checklist */}
+          <div className="space-y-2.5">
+            <div className="flex items-center justify-between">
+              <span className="text-xs font-black text-[#3D342C]">
+                📋 為妳制定的專屬項目（共 {formatDurationLabel(plannedTotalStats.totalSec)} · 預計{' '}
+                {plannedTotalStats.totalKcal} kcal）
+              </span>
+              <button
+                type="button"
+                onClick={handleShuffleDailyPlan}
+                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EFECE3] hover:bg-[#E3DFD3] text-[11px] font-bold text-[#25385B]"
+              >
+                <Dices className="w-3.5 h-3.5" /> 換一組動作
+              </button>
+            </div>
+
+            <div className="space-y-2">
+              {activeDailyPlan.items.map((item, idx) => {
+                const def = getExerciseById(item.exerciseId);
+                const kcal = calculateExerciseCalories(def.met, weightKg, item.durationSec);
+                const matchedLog = matchedCompletedMap[item.id];
+                const isDone = Boolean(matchedLog);
+
+                return (
+                  <div
+                    key={item.id}
+                    className={`p-3 rounded-2xl border transition space-y-2 ${
+                      isDone
+                        ? 'bg-[#E3F1DF]/65 border-[#8FBC8B]'
+                        : 'bg-[#EFECE3] border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-2">
+                      <div className="flex items-start gap-2.5 min-w-0">
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isDone) {
+                              soundEngine.unlock();
+                              soundEngine.playVictoryFanfare();
+                            }
+                            onQuickTogglePlanItem(item, matchedLog);
+                          }}
+                          className="mt-0.5 shrink-0"
+                          title={isDone ? '點擊取消打卡' : '直接打勾完成此項目'}
+                        >
+                          {isDone ? (
+                            <CheckCircle2 className="w-5 h-5 text-[#355E30] fill-[#E3F1DF]" />
+                          ) : (
+                            <Circle className="w-5 h-5 text-[#8A7E70]" />
+                          )}
+                        </button>
+
+                        <div className="min-w-0">
+                          <div
+                            className={`text-xs font-black flex items-center gap-1.5 flex-wrap ${
+                              isDone ? 'text-[#2F522B] line-through' : 'text-[#2C241E]'
+                            }`}
+                          >
+                            <span>
+                              {idx + 1}. {def.name}
+                            </span>
+                            {def.hasMetronome180 && (
+                              <span className="px-1.5 py-0.5 rounded bg-[#DCE6D8] text-[#355E30] text-[10px] no-underline">
+                                ♪ 180節拍
+                              </span>
+                            )}
+                          </div>
+                          <div className="text-[11px] text-[#6E6459] mt-0.5">{def.subtitle}</div>
+                        </div>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <div className="text-xs font-black text-[#2C241E]">
+                          {formatDurationLabel(item.durationSec)}
+                        </div>
+                        <div className="text-[11px] font-black text-[#C83B32]">🔥 {kcal} kcal</div>
+                      </div>
+                    </div>
+
+                    {/* Action Row: Fine-tune duration + Countdown Play + 1-Tap Check-off */}
+                    <div className="flex items-center justify-between gap-2 pl-7 pt-0.5">
+                      {!isDone ? (
+                        <div className="flex items-center gap-1">
+                          <button
+                            type="button"
+                            onClick={() => handleAdjustPlanItemSec(item.id, -30)}
+                            className="px-1.5 py-0.5 rounded-lg bg-white text-[10px] font-bold text-[#5C5145]"
+                            title="減少 30 秒"
+                          >
+                            -30秒
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleAdjustPlanItemSec(item.id, 30)}
+                            className="px-1.5 py-0.5 rounded-lg bg-white text-[10px] font-bold text-[#5C5145]"
+                            title="增加 30 秒"
+                          >
+                            +30秒
+                          </button>
+                        </div>
+                      ) : (
+                        <span className="text-[11px] font-bold text-[#355E30]">
+                          ✨ 已完成打卡（消耗 {matchedLog?.caloriesBurned ?? kcal} kcal）
+                        </span>
+                      )}
+
+                      <div className="flex items-center gap-1.5">
+                        {!isDone && (
+                          <button
+                            type="button"
+                            onClick={() =>
+                              onStartPlaylist([
+                                {
+                                  exerciseId: item.exerciseId,
+                                  durationSec: item.durationSec,
+                                  planItemId: item.id,
+                                },
+                              ])
+                            }
+                            className="px-2.5 py-1 rounded-xl bg-[#C83B32] text-white text-[11px] font-black flex items-center gap-1"
+                          >
+                            <Play className="w-3 h-3 fill-current" /> 配樂跟練
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!isDone) {
+                              soundEngine.unlock();
+                              soundEngine.playVictoryFanfare();
+                            }
+                            onQuickTogglePlanItem(item, matchedLog);
+                          }}
+                          className={`px-2.5 py-1 rounded-xl text-[11px] font-black border transition ${
+                            isDone
+                              ? 'bg-white border-[#8FBC8B] text-[#355E30]'
+                              : 'bg-[#FAF8F3] border-[#D8D2C5] text-[#2C241E] hover:bg-[#F3C85F]/40'
+                          }`}
+                        >
+                          {isDone ? '✓ 已完成' : '✓ 直接打卡'}
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+
+          {/* Primary CTA: Play All Remaining Uncompleted Items with Music */}
+          {uncompletedPlaylist.length > 0 ? (
+            <button
+              type="button"
+              onClick={() => onStartPlaylist(uncompletedPlaylist)}
+              className="w-full py-3.5 rounded-2xl bg-[#C83B32] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2"
+            >
+              <Play className="w-4 h-4 fill-current" />
+              配樂跟練剩餘 {uncompletedPlaylist.length} 項（{formatDurationLabel(uncompletedStats.sec)} · 🔥{' '}
+              {uncompletedStats.kcal} kcal）
+            </button>
+          ) : (
+            <button
+              type="button"
+              onClick={() =>
+                onStartPlaylist(
+                  activeDailyPlan.items.map((it) => ({
+                    exerciseId: it.exerciseId,
+                    durationSec: it.durationSec,
+                  }))
+                )
+              }
+              className="w-full py-3.5 rounded-2xl bg-[#485F44] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2"
+            >
+              <Sparkles className="w-4 h-4" />
+              今日計畫全數完成 🎉 點此可再加練一輪！
+            </button>
+          )}
+        </div>
+      ) : plannerMode === 'combo' ? (
         <div className="doodle-card p-4 space-y-4">
           <div>
             <h3 className="font-black text-base text-[#2C241E] flex items-center gap-1.5">

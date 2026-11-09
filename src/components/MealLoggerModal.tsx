@@ -46,6 +46,8 @@ const QUICK_NOTE_CHIPS = [
   '微糖去冰',
   '醬汁減半',
   '不喝湯',
+  '包裝營養標示(吃1份)',
+  '包裝營養標示(整包/整瓶)',
 ];
 
 function inferDefaultCategory(): MealCategory {
@@ -474,7 +476,7 @@ export const MealLoggerModal: React.FC<Props> = ({
                 >
                   <Camera className="w-7 h-7 text-[#C83B32]" />
                   <span className="text-sm font-black">拍下這餐美食</span>
-                  <span className="text-[11px] text-[#6E6459]">開啟手機相機即拍即算</span>
+                  <span className="text-[11px] text-[#6E6459]">拍食物或「背面營養標示」都行！</span>
                 </button>
                 <button
                   type="button"
@@ -483,10 +485,14 @@ export const MealLoggerModal: React.FC<Props> = ({
                 >
                   <ImageIcon className="w-7 h-7 text-[#25385B]" />
                   <span className="text-sm font-black">從相簿選照片</span>
-                  <span className="text-[11px] text-[#6E6459]">上傳剛剛拍好的食物照</span>
+                  <span className="text-[11px] text-[#6E6459]">支援餐點照＆商品熱量表</span>
                 </button>
               </div>
             )}
+
+            <div className="px-3 py-2 rounded-xl bg-[#FAF4EB] border border-[#E5CFB3] text-[11px] text-[#5C5044] leading-relaxed">
+              💡 <b>拍包裝背面小撇步：</b>已支援高清直讀「<b>營養標示＆成分表</b>」！若包裝背面沒印商品名稱，可在下方順手打上品名（如：無糖黑豆漿），熱量數字會 100% 依背面表格精算喔 ✨
+            </div>
 
             {/* Initial description + quick chips */}
             <div className="space-y-2">

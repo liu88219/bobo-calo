@@ -1,6 +1,9 @@
 import {
   ExerciseDefinition,
   WorkoutPlaylistItem,
+  DailyWorkoutPlanItem,
+  WorkoutLog,
+  calculateExerciseCalories,
   calculateSecondsForTargetCalories,
 } from '../types/tracker';
 
@@ -314,4 +317,134 @@ export function buildMealChallengePlaylist(
   }
 
   return { targetCalories, items };
+}
+
+const DAILY_PLAN_POOLS: string[][] = [
+  [
+    'swan_arm_circles',
+    'bed_air_bike',
+    'slow_jogging_180',
+    'bye_bye_arm_pulse',
+    'bed_glute_bridge',
+    'angel_wings_pull',
+    'slow_squat',
+    'bed_dead_bug',
+    'prayer_chest_press',
+    'bed_clamshell_leg',
+    'wall_stand',
+    'bed_spinal_twist',
+  ],
+  [
+    'bye_bye_arm_pulse',
+    'bed_glute_bridge',
+    'slow_squat',
+    'angel_wings_pull',
+    'bed_dead_bug',
+    'slow_jogging_180',
+    'swan_arm_circles',
+    'bed_clamshell_leg',
+    'bed_air_bike',
+    'cat_cow',
+    'prayer_chest_press',
+    'wall_stand',
+  ],
+  [
+    'angel_wings_pull',
+    'bed_clamshell_leg',
+    'bed_air_bike',
+    'prayer_chest_press',
+    'slow_jogging_180',
+    'bed_spinal_twist',
+    'swan_arm_circles',
+    'bed_glute_bridge',
+    'slow_squat',
+    'bye_bye_arm_pulse',
+    'bed_dead_bug',
+    'cat_cow',
+  ],
+];
+
+/**
+ * 依據「每日目標消耗卡路里」自動制定專屬運動項目清單（每項控制在 1～4 分鐘內，優先搭配手部雕塑與床上躺練）
+ */
+export function buildDailyCalorieTargetPlan(
+  targetKcal: number,
+  weightKg: number,
+  variantSeed = 0
+): DailyWorkoutPlanItem[] {
+  const safeTarget = Math.max(15, Math.min(800, Math.round(targetKcal || 80)));
+  const basePool = DAILY_PLAN_POOLS[Math.abs(variantSeed) % DAILY_PLAN_POOLS.length];
+  const shift = Math.floor(Math.abs(variantSeed) / DAILY_PLAN_POOLS.length) % basePool.length;
+  const orderedPool = [...basePool.slice(shift), ...basePool.slice(0, shift)];
+
+  const items: DailyWorkoutPlanItem[] = [];
+  let remaining = safeTarget;
+  let cursor = 0;
+
+  while (remaining > 0 && items.length < 14) {
+    const exId = orderedPool[cursor % orderedPool.length];
+    cursor += 1;
+    const def = getExerciseById(exId);
+    const full4MinBurn = calculateExerciseCalories(def.met, weightKg, 240);
+
+    if (remaining > full4MinBurn + 5) {
+      items.push({
+        id: `plan-${variantSeed}-${items.length + 1}-${exId}`,
+        exerciseId: exId,
+        durationSec: 240,
+      });
+      remaining -= full4MinBurn;
+    } else {
+      const exactSec = Math.min(
+        240,
+        Math.max(45, calculateSecondsForTargetCalories(def.met, weightKg, remaining))
+      );
+      const actualBurn = calculateExerciseCalories(def.met, weightKg, exactSec);
+      items.push({
+        id: `plan-${variantSeed}-${items.length + 1}-${exId}`,
+        exerciseId: exId,
+        durationSec: exactSec,
+      });
+      remaining -= actualBurn;
+      if (remaining < 5) break;
+    }
+  }
+
+  return items;
+}
+
+/**
+ * 比對今日計畫項目與今日已完成運動紀錄（同時支援指定打卡 planItemId 與同動作名稱自動歸戶）
+ */
+export function matchCompletedPlanItems(
+  planItems: DailyWorkoutPlanItem[],
+  dayWorkouts: WorkoutLog[]
+): Record<string, WorkoutLog> {
+  const matched: Record<string, WorkoutLog> = {};
+  const usedWorkoutIds = new Set<string>();
+
+  // Pass 1: 優先配對明確綁定 planItemId 的完成紀錄
+  for (const item of planItems) {
+    const exact = dayWorkouts.find(
+      (w) => w.planItemId === item.id && !usedWorkoutIds.has(w.id)
+    );
+    if (exact) {
+      matched[item.id] = exact;
+      usedWorkoutIds.add(exact.id);
+    }
+  }
+
+  // Pass 2: 若使用者從圖鑑單獨跟練了相同動作，也貼心自動算入今日計畫完成！
+  for (const item of planItems) {
+    if (matched[item.id]) continue;
+    const byExercise = dayWorkouts.find(
+      (w) => !w.planItemId && w.exerciseId === item.exerciseId && !usedWorkoutIds.has(w.id)
+    );
+    if (byExercise) {
+      matched[item.id] = byExercise;
+      usedWorkoutIds.add(byExercise.id);
+    }
+  }
+
+  return matched;
 }

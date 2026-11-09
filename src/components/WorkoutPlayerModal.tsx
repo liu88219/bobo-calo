@@ -17,7 +17,7 @@ import {
 } from '../types/tracker';
 import { getExerciseById } from '../data/exercises';
 import { pickWorkoutPraise } from '../data/praiseMessages';
-import { soundEngine } from '../services/soundEffects';
+import { BgmStyle, soundEngine } from '../services/soundEffects';
 import {
   ExerciseAnimationStage,
   MascotDuoIllustration,
@@ -35,6 +35,7 @@ interface Props {
       durationSec: number;
       caloriesBurned: number;
       sourceMealId?: string;
+      planItemId?: string;
     }>
   ) => void;
   onClose: () => void;
@@ -60,6 +61,7 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
   const [secondsLeft, setSecondsLeft] = useState(3);
   const [paused, setPaused] = useState(false);
   const [muted, setMuted] = useState(soundEngine.muted);
+  const [bgmStyle, setBgmStyle] = useState<BgmStyle>(soundEngine.bgmStyle);
   const [metronomeOn, setMetronomeOn] = useState(false);
   const [completedLog, setCompletedLog] = useState<
     Array<{
@@ -68,6 +70,7 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
       durationSec: number;
       caloriesBurned: number;
       sourceMealId?: string;
+      planItemId?: string;
     }>
   >([]);
   const [praiseText] = useState(() => pickWorkoutPraise());
@@ -98,10 +101,27 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
     };
   }, [phase, paused, metronomeOn, muted]);
 
+  // Sync background music (BGM) during active & rest countdowns
+  useEffect(() => {
+    const shouldPlayBgm =
+      (phase === 'active' || phase === 'rest') && !paused && !muted && bgmStyle !== 'off';
+    const shouldDuck = phase === 'rest' || (phase === 'active' && metronomeOn);
+    if (shouldPlayBgm) {
+      soundEngine.startBgm(bgmStyle, shouldDuck);
+      soundEngine.setBgmDucked(shouldDuck);
+    } else {
+      soundEngine.stopBgm();
+    }
+    return () => {
+      soundEngine.stopBgm();
+    };
+  }, [phase, paused, muted, bgmStyle, metronomeOn]);
+
   useEffect(() => {
     soundEngine.unlock();
     return () => {
       soundEngine.stop180Metronome();
+      soundEngine.stopBgm();
     };
   }, []);
 
@@ -113,6 +133,7 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
       durationSec: currentItem.durationSec,
       caloriesBurned: kcal,
       sourceMealId,
+      planItemId: currentItem.planItemId,
     };
     setCompletedLog((prev) => [...prev, entry]);
     return entry;
@@ -158,6 +179,7 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
               currentItem.durationSec
             ),
             sourceMealId,
+            planItemId: currentItem.planItemId,
           };
           setCompletedLog((old) => {
             const nextList = [...old, finishedEntry];
@@ -195,6 +217,7 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
     phase,
     stepIdx,
     currentItem.durationSec,
+    currentItem.planItemId,
     currentDef.id,
     currentDef.met,
      currentDef.name,
@@ -207,7 +230,21 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
   const toggleMute = () => {
     const next = !muted;
     soundEngine.muted = next;
+    if (next) {
+      soundEngine.stopBgm();
+      soundEngine.stop180Metronome();
+    }
     setMuted(next);
+  };
+
+  const handleSelectBgm = (nextStyle: BgmStyle) => {
+    soundEngine.unlock();
+    if (nextStyle !== 'off' && muted) {
+      soundEngine.muted = false;
+      setMuted(false);
+    }
+    soundEngine.setBgmStyle(nextStyle);
+    setBgmStyle(nextStyle);
   };
 
   const handleSkipCurrent = () => {
@@ -273,7 +310,7 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
               type="button"
               onClick={toggleMute}
               className="p-2 rounded-full bg-[#FAF4EB] border border-[#DFC8AC] text-[#5C3F2D]"
-              title={muted ? '開啟提示音' : '靜音'}
+              title={muted ? '開啟音樂與提示音' : '靜音'}
             >
               {muted ? <VolumeX className="w-4 h-4" /> : <Volume2 className="w-4 h-4" />}
             </button>
@@ -287,6 +324,33 @@ export const WorkoutPlayerModal: React.FC<Props> = ({
             </button>
           </div>
         </div>
+
+        {/* Background Music (BGM) Selector Bar */}
+        {phase !== 'finished' && (
+          <div className="flex items-center justify-between gap-1.5 mb-3 p-1.5 rounded-2xl bg-[#FAF4EB] border border-[#E5CFB3]">
+            {[
+              { id: 'cheerful' as BgmStyle, label: '🎵 輕快棉花糖律動' },
+              { id: 'musicbox' as BgmStyle, label: '🎹 溫柔療癒音樂盒' },
+              { id: 'off' as BgmStyle, label: '🔕 僅提示音' },
+            ].map((opt) => {
+              const active = !muted && bgmStyle === opt.id;
+              return (
+                <button
+                  key={opt.id}
+                  type="button"
+                  onClick={() => handleSelectBgm(opt.id)}
+                  className={`flex-1 py-1.5 px-2 rounded-xl text-[11px] font-black transition ${
+                    active
+                      ? 'bg-[#F3C85F] text-[#2C241E] shadow-sm border border-[#2C241E]/40'
+                      : 'text-[#6E6459] hover:bg-white/60'
+                  }`}
+                >
+                  {opt.label}
+                </button>
+              );
+            })}
+          </div>
+        )}
 
         {/* Finished Celebration Screen */}
         {phase === 'finished' ? (

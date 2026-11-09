@@ -19,9 +19,15 @@ import {
   calculateExerciseCalories,
   DEFAULT_PROFILE,
 } from '../types/tracker';
-import { buildMealChallengePlaylist } from '../data/exercises';
+import {
+  buildMealChallengePlaylist,
+  buildDailyCalorieTargetPlan,
+  matchCompletedPlanItems,
+  getExerciseById,
+} from '../data/exercises';
 import {
   parseGeminiNutritionJson,
+  parseTaiwanNutritionLabelText,
   recalculateMealFromEdits,
 } from '../services/geminiService';
 
@@ -353,5 +359,84 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     expect(pullOutcome.matchedPasscode).toBe('MonaSecret88');
     expect(pullOutcome.mergedState.meals).toHaveLength(1);
     expect(pullOutcome.mergedState.meals[0].title).toBe('鮭魚酪梨波奇碗');
+  });
+
+  it('formulates daily target-calorie workout checklist accurately and tracks item completions', () => {
+    const plan80 = buildDailyCalorieTargetPlan(80, 54, 0);
+    expect(plan80.length).toBeGreaterThanOrEqual(3);
+    expect(plan80.every((it) => it.durationSec >= 45 && it.durationSec <= 240)).toBe(true);
+
+    const total80 = plan80.reduce(
+      (sum, it) => sum + calculateExerciseCalories(getExerciseById(it.exerciseId).met, 54, it.durationSec),
+      0
+    );
+    expect(Math.abs(total80 - 80)).toBeLessThanOrEqual(5);
+
+    const shuffledPlan = buildDailyCalorieTargetPlan(80, 54, 1);
+    expect(shuffledPlan[0].exerciseId).not.toBe(plan80[0].exerciseId);
+
+    // Match completed items via planItemId AND via standalone exerciseId fallback
+    const matched = matchCompletedPlanItems(plan80, [
+      {
+        id: 'wo-1',
+        dateKey: '2026-11-09',
+        exerciseId: plan80[0].exerciseId,
+        exerciseName: 'Item 1',
+        durationSec: plan80[0].durationSec,
+        caloriesBurned: 15,
+        planItemId: plan80[0].id,
+        createdAt: 1000,
+      },
+      {
+        id: 'wo-2',
+        dateKey: '2026-11-09',
+        exerciseId: plan80[1].exerciseId,
+        exerciseName: 'Item 2 from gallery',
+        durationSec: 240,
+        caloriesBurned: 16,
+        createdAt: 2000,
+      },
+    ]);
+    expect(matched[plan80[0].id]?.id).toBe('wo-1');
+    expect(matched[plan80[1].id]?.id).toBe('wo-2');
+    expect(matched[plan80[2].id]).toBeUndefined();
+  });
+
+  it('parses back-of-package Taiwan Nutrition Facts labels even when front product title is missing', () => {
+    const snackBackOcr = `
+      成分：燕麥片、杏仁果、蔓越莓乾、蜂蜜
+      營養標示
+      每一份量 45 公克
+      本包裝含 1 份
+      每份
+      熱量 193 大卡
+      蛋白質 5.4 公克
+      脂肪 6.8 公克
+      飽和脂肪 1.1 公克
+      碳水化合物 27.6 公克
+    `;
+    const snackParsed = parseTaiwanNutritionLabelText(snackBackOcr, undefined, 'snack');
+    expect(snackParsed).not.toBeNull();
+    expect(snackParsed!.totalCalories).toBe(193);
+    expect(snackParsed!.proteinG).toBe(5.4);
+    expect(snackParsed!.fatG).toBe(6.8);
+    expect(snackParsed!.carbsG).toBe(27.6);
+    expect(snackParsed!.title).toContain('燕麥片杏仁果');
+
+    const bottleSoyOcr = `
+      品名：濃厚無加糖黑豆漿
+      營養標示
+      每一份量 200 毫升
+      本包裝含 2 份
+      熱量 106 大卡
+      蛋白質 10.4 公克
+      脂肪 4.6 公克
+      碳水化合物 5.8 公克
+    `;
+    const bottleParsed = parseTaiwanNutritionLabelText(bottleSoyOcr, undefined, 'breakfast');
+    expect(bottleParsed).not.toBeNull();
+    expect(bottleParsed!.title).toBe('濃厚無加糖黑豆漿');
+    expect(bottleParsed!.totalCalories).toBe(212);
+    expect(bottleParsed!.proteinG).toBe(20.8);
   });
 });

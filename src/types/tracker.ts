@@ -4,6 +4,8 @@ export type ActivityLevel = 'sedentary' | 'light' | 'moderate' | 'active';
 
 export type GoalMode = 'gentle_cut' | 'mini_cut' | 'maintain' | 'custom';
 
+export type DailyBurnTargetMode = 'fixed' | 'surplus_auto';
+
 export interface UserProfile {
   nickname: string;
   gender: 'female' | 'male';
@@ -14,6 +16,8 @@ export interface UserProfile {
   goalMode: GoalMode;
   customDailyCalories?: number;
   dailyWaterTargetMl: number;
+  dailyBurnTargetKcal?: number;
+  dailyBurnTargetMode?: DailyBurnTargetMode;
 }
 
 export interface MealFoodItem {
@@ -63,6 +67,7 @@ export interface ExerciseDefinition {
 export interface WorkoutPlaylistItem {
   exerciseId: string;
   durationSec: number;
+  planItemId?: string;
 }
 
 export interface WorkoutLog {
@@ -73,7 +78,22 @@ export interface WorkoutLog {
   durationSec: number;
   caloriesBurned: number;
   sourceMealId?: string;
+  planItemId?: string;
   createdAt: number;
+}
+
+export interface DailyWorkoutPlanItem {
+  id: string;
+  exerciseId: string;
+  durationSec: number;
+}
+
+export interface DailyWorkoutPlan {
+  dateKey: string;
+  targetKcal: number;
+  variantSeed: number;
+  items: DailyWorkoutPlanItem[];
+  updatedAt: number;
 }
 
 export interface WaterLog {
@@ -95,6 +115,7 @@ export interface VaultState {
   workouts: WorkoutLog[];
   waters: WaterLog[];
   stamps: string[]; // dateKeys or unique stamp IDs earned
+  dailyWorkoutPlans?: Record<string, DailyWorkoutPlan>;
   deletedIds: Record<string, number>;
 }
 
@@ -107,6 +128,8 @@ export const DEFAULT_PROFILE: UserProfile = {
   activityLevel: 'light',
   goalMode: 'gentle_cut',
   dailyWaterTargetMl: 1800,
+  dailyBurnTargetKcal: 80,
+  dailyBurnTargetMode: 'fixed',
 };
 
 export function createInitialVaultState(): VaultState {
@@ -121,6 +144,7 @@ export function createInitialVaultState(): VaultState {
     workouts: [],
     waters: [],
     stamps: [],
+    dailyWorkoutPlans: {},
     deletedIds: {},
   };
 }
@@ -182,6 +206,22 @@ export function calculateSecondsForTargetCalories(met: number, weightKg: number,
   const rawSec = Math.round((Math.max(5, targetCalories) / kcalPerHour) * 3600);
   // Round neatly to nearest 15 seconds, minimum 30s
   return Math.max(30, Math.round(rawSec / 15) * 15);
+}
+
+/**
+ * 解析今日目標運動消耗大卡：支援「固定每日目標（如 80 kcal）」與「自動補齊今日超標熱量」兩種模式
+ */
+export function resolveDailyBurnTargetKcal(
+  profile: UserProfile,
+  eatenKcal: number,
+  dailyBudget: number
+): number {
+  const baseTarget = Math.max(20, Math.round(profile.dailyBurnTargetKcal || 80));
+  if (profile.dailyBurnTargetMode === 'surplus_auto') {
+    const surplus = Math.round(eatenKcal - dailyBudget);
+    return surplus > 0 ? Math.max(30, surplus) : baseTarget;
+  }
+  return baseTarget;
 }
 
 export const MEAL_CATEGORY_META: Record<
