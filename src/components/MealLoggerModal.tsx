@@ -44,6 +44,10 @@ interface Props {
 }
 
 const QUICK_NOTE_CHIPS = [
+  '3菜1主菜1飯(共5格)',
+  '4菜1主菜(無飯)',
+  '3菜1飯(無主肉)',
+  '4菜1主菜1飯(共6格)',
   '自助餐分格盤',
   '白飯吃一半',
   '紫米/五穀飯半碗',
@@ -56,6 +60,24 @@ const QUICK_NOTE_CHIPS = [
   '不喝湯',
   '包裝營養標示(吃1份)',
   '包裝營養標示(整包/整瓶)',
+];
+
+const QUICK_PATCH_BUFFET_IDS: Array<{ id: string; scale?: number; label: string }> = [
+  { id: 'tw-bfet-s1', scale: 0.5, label: '🍚 白飯半碗' },
+  { id: 'tw-bfet-s2', scale: 0.5, label: '🟣 紫米飯半碗' },
+  { id: 'tw-bfet-v1', label: '🥬 炒高麗菜' },
+  { id: 'tw-bfet-v5', label: '🥦 花椰菜' },
+  { id: 'tw-bfet-v3', label: '🌿 空心菜/菠菜' },
+  { id: 'tw-bfet-v2', label: '🍃 地瓜葉' },
+  { id: 'tw-bfet-v7', label: '🌱 炒豆芽菜' },
+  { id: 'tw-bfet-e1', label: '🍅 番茄炒蛋' },
+  { id: 'tw-bfet-e4', label: '🥚 蒸蛋' },
+  { id: 'tw-bfet-e5', label: '🍳 荷包蛋' },
+  { id: 'tw-bfet-e7', label: '🍲 紅燒豆腐' },
+  { id: 'tw-bfet-e6', label: '🌶️ 麻婆豆腐' },
+  { id: 'tw-bfet-e8', label: '🟫 炒豆干' },
+  { id: 'tw-bfet-v13', label: '🍆 炒茄子' },
+  { id: 'tw-bfet-s7', label: '🥣 清湯1碗' },
 ];
 
 function inferDefaultCategory(): MealCategory {
@@ -103,6 +125,7 @@ export const MealLoggerModal: React.FC<Props> = ({
   const [searchQuery, setSearchQuery] = useState('');
   const [selectedGroup, setSelectedGroup] = useState<string>('自助餐夾菜');
   const [buffetSubFilter, setBuffetSubFilter] = useState<'all' | BuffetSubType>('all');
+  const [quickPatchQuery, setQuickPatchQuery] = useState('');
   const [customName, setCustomName] = useState('');
   const [customCalories, setCustomCalories] = useState('');
 
@@ -731,6 +754,61 @@ export const MealLoggerModal: React.FC<Props> = ({
               >
                 <Plus className="w-3 h-3" /> 新增漏掉的食物
               </button>
+            </div>
+
+            {/* 1-Tap Instant Missing Compartment Patch Bar (Zero typing, zero AI wait!) */}
+            <div className="p-2.5 rounded-2xl bg-[#FFF6E2] border border-[#E5C98B] space-y-2">
+              <div className="flex items-center justify-between gap-2 flex-wrap">
+                <span className="text-[11px] font-black text-[#422B1D]">
+                  ⚡ 照片漏抓哪一格菜？點一下 1 秒補進餐盤（免等 AI 重算）：
+                </span>
+                <input
+                  type="text"
+                  value={quickPatchQuery}
+                  onChange={(e) => setQuickPatchQuery(e.target.value)}
+                  placeholder="搜尋其他漏掉的菜..."
+                  className="w-36 px-2 py-0.5 rounded-lg border border-[#D8C396] bg-white text-[11px] text-[#2C241E]"
+                />
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {quickPatchQuery.trim()
+                  ? TAIWAN_FOOD_PRESETS.filter((p) =>
+                      `${p.name} ${p.group}`
+                        .toLowerCase()
+                        .includes(quickPatchQuery.trim().toLowerCase())
+                    )
+                      .slice(0, 12)
+                      .map((preset) => (
+                        <button
+                          key={preset.id}
+                          type="button"
+                          onClick={() => {
+                            addPresetFood(preset, 1);
+                            setQuickPatchQuery('');
+                          }}
+                          className="px-2 py-1 rounded-full bg-white hover:bg-[#F3C85F]/40 border border-[#DFC27D] text-[11px] font-bold text-[#2C241E] transition active:scale-95"
+                        >
+                          + {preset.name} ({preset.calories})
+                        </button>
+                      ))
+                  : QUICK_PATCH_BUFFET_IDS.map((entry) => {
+                      const preset = TAIWAN_FOOD_PRESETS.find((p) => p.id === entry.id);
+                      if (!preset) return null;
+                      const scale = entry.scale || 1;
+                      const kcal = Math.round(preset.calories * scale);
+                      return (
+                        <button
+                          key={`${entry.id}-${scale}`}
+                          type="button"
+                          onClick={() => addPresetFood(preset, scale)}
+                          className="px-2 py-1 rounded-full bg-white hover:bg-[#F3C85F]/40 border border-[#DFC27D] text-[11px] font-bold text-[#2C241E] transition active:scale-95"
+                        >
+                          + {entry.label}{' '}
+                          <span className="text-[#C83B32] font-black">{kcal}</span>
+                        </button>
+                      );
+                    })}
+              </div>
             </div>
 
             <div>
