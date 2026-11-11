@@ -44,6 +44,9 @@ interface Props {
 }
 
 const QUICK_NOTE_CHIPS = [
+  '空盤自己夾(每樣都夾一點)',
+  '空盤夾4~5樣菜(都小份)',
+  '空盤夾6~7樣菜(都小份)',
   '3菜1主菜1飯(共5格)',
   '4菜1主菜(無飯)',
   '3菜1飯(無主肉)',
@@ -62,9 +65,9 @@ const QUICK_NOTE_CHIPS = [
   '包裝營養標示(整包/整瓶)',
 ];
 
-const QUICK_PATCH_BUFFET_IDS: Array<{ id: string; scale?: number; label: string }> = [
-  { id: 'tw-bfet-s1', scale: 0.5, label: '🍚 白飯半碗' },
-  { id: 'tw-bfet-s2', scale: 0.5, label: '🟣 紫米飯半碗' },
+const QUICK_PATCH_BUFFET_IDS: Array<{ id: string; fixedScale?: number; label: string }> = [
+  { id: 'tw-bfet-s1', fixedScale: 0.5, label: '🍚 白飯半碗' },
+  { id: 'tw-bfet-s2', fixedScale: 0.5, label: '🟣 紫米飯半碗' },
   { id: 'tw-bfet-v1', label: '🥬 炒高麗菜' },
   { id: 'tw-bfet-v5', label: '🥦 花椰菜' },
   { id: 'tw-bfet-v3', label: '🌿 空心菜/菠菜' },
@@ -77,7 +80,9 @@ const QUICK_PATCH_BUFFET_IDS: Array<{ id: string; scale?: number; label: string 
   { id: 'tw-bfet-e6', label: '🌶️ 麻婆豆腐' },
   { id: 'tw-bfet-e8', label: '🟫 炒豆干' },
   { id: 'tw-bfet-v13', label: '🍆 炒茄子' },
-  { id: 'tw-bfet-s7', label: '🥣 清湯1碗' },
+  { id: 'tw-bfet-m5', label: '🍗 白斬雞/雞肉' },
+  { id: 'tw-bfet-m9', label: '🥩 洋蔥炒肉絲' },
+  { id: 'tw-bfet-s7', fixedScale: 1, label: '🥣 清湯1碗' },
 ];
 
 function inferDefaultCategory(): MealCategory {
@@ -126,6 +131,7 @@ export const MealLoggerModal: React.FC<Props> = ({
   const [selectedGroup, setSelectedGroup] = useState<string>('自助餐夾菜');
   const [buffetSubFilter, setBuffetSubFilter] = useState<'all' | BuffetSubType>('all');
   const [quickPatchQuery, setQuickPatchQuery] = useState('');
+  const [quickPatchScale, setQuickPatchScale] = useState<0.5 | 1>(0.5);
   const [customName, setCustomName] = useState('');
   const [customCalories, setCustomCalories] = useState('');
 
@@ -538,7 +544,10 @@ export const MealLoggerModal: React.FC<Props> = ({
 
             <div className="px-3 py-2 rounded-xl bg-[#FAF4EB] border border-[#E5CFB3] text-[11px] text-[#5C5044] leading-relaxed space-y-1">
               <div>
-                🍱 <b>拍公司自助餐盤秒準秘訣：</b>手機從<b>正上方平拍整盤</b>（拍出分格大小比例）、<b>飯與主菜別疊在一起蓋住</b>，若有深色滷汁或勾芡順手點下方標籤或補 2 個字最準！
+                🍽️ <b>空盤自己每樣夾一點秘訣：</b>夾菜時沿著盤子繞一圈<b>「每小撮稍微分開擺、別疊在上面蓋住」</b>，並點下方<b>「+ 空盤自己夾(每樣都夾一點)」</b>標籤，AI 就會順時針一撮一撮用小份量幫妳算！
+              </div>
+              <div>
+                🍱 <b>分格餐盤／便當：</b>手機從<b>正上方平拍整盤</b>，若有深色滷汁或漏抓哪樣菜，可在辨識結果直接 1 秒點選補進盤子！
               </div>
               <div>
                 📦 <b>拍包裝背面：</b>支援高清直讀「<b>營養標示＆成分表</b>」（背面若沒印品名可順手打在下方備註欄 ✨）
@@ -740,35 +749,82 @@ export const MealLoggerModal: React.FC<Props> = ({
         {/* === Editable Food Items Breakdown & 1-Tap AI Recalculate Section === */}
         {(items.length > 0 || hasAnalyzed || isEditingExisting) && (
           <div className="space-y-3.5 pt-3 border-t border-[#DDD7C9]">
-            <div className="flex items-center justify-between">
+            <div className="flex items-center justify-between gap-2 flex-wrap">
               <div className="flex items-center gap-1.5">
                 <PencilLine className="w-4 h-4 text-[#C83B32]" />
                 <span className="text-xs font-black text-[#2C241E]">
                   辨識菜色明細（可直接改菜名／份量！）
                 </span>
               </div>
-              <button
-                type="button"
-                onClick={addBlankEditableItem}
-                className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EFECE3] hover:bg-[#E2DFD4] text-[11px] font-bold text-[#25385B]"
-              >
-                <Plus className="w-3 h-3" /> 新增漏掉的食物
-              </button>
+              <div className="flex items-center gap-1.5">
+                <button
+                  type="button"
+                  onClick={() =>
+                    setItems((prev) =>
+                      prev.map((it) => ({
+                        ...it,
+                        portion: it.portion.includes('夾一點')
+                          ? it.portion
+                          : `夾一點/半份 (${it.portion})`,
+                        calories: Math.max(1, Math.round(it.calories * 0.5)),
+                        proteinG: Math.round(it.proteinG * 0.5 * 10) / 10,
+                        carbsG: Math.round(it.carbsG * 0.5 * 10) / 10,
+                        fatG: Math.round(it.fatG * 0.5 * 10) / 10,
+                      }))
+                    )
+                  }
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#FFF6E2] border border-[#DFC27D] text-[11px] font-black text-[#5C3F2D]"
+                  title="把整盤所有菜色都直接改為「每樣夾一點（半份熱量）」"
+                >
+                  🤏 整盤都改夾一點(×0.5)
+                </button>
+                <button
+                  type="button"
+                  onClick={addBlankEditableItem}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EFECE3] hover:bg-[#E2DFD4] text-[11px] font-bold text-[#25385B]"
+                >
+                  <Plus className="w-3 h-3" /> 新增自訂
+                </button>
+              </div>
             </div>
 
-            {/* 1-Tap Instant Missing Compartment Patch Bar (Zero typing, zero AI wait!) */}
+            {/* 1-Tap Instant Missing Dish Patch Bar (Supports "夾一點/半份" & "正常1份"!) */}
             <div className="p-2.5 rounded-2xl bg-[#FFF6E2] border border-[#E5C98B] space-y-2">
               <div className="flex items-center justify-between gap-2 flex-wrap">
                 <span className="text-[11px] font-black text-[#422B1D]">
-                  ⚡ 照片漏抓哪一格菜？點一下 1 秒補進餐盤（免等 AI 重算）：
+                  ⚡ 空盤漏抓哪樣菜？點一下 1 秒補進盤子：
                 </span>
-                <input
-                  type="text"
-                  value={quickPatchQuery}
-                  onChange={(e) => setQuickPatchQuery(e.target.value)}
-                  placeholder="搜尋其他漏掉的菜..."
-                  className="w-36 px-2 py-0.5 rounded-lg border border-[#D8C396] bg-white text-[11px] text-[#2C241E]"
-                />
+                <div className="flex items-center gap-1">
+                  <button
+                    type="button"
+                    onClick={() => setQuickPatchScale(0.5)}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black border transition ${
+                      quickPatchScale === 0.5
+                        ? 'bg-[#2C241E] border-[#2C241E] text-[#F3C85F]'
+                        : 'bg-white border-[#D8C396] text-[#5C5044]'
+                    }`}
+                  >
+                    🤏 夾一點(半份)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setQuickPatchScale(1)}
+                    className={`px-2 py-0.5 rounded-full text-[10px] font-black border transition ${
+                      quickPatchScale === 1
+                        ? 'bg-[#2C241E] border-[#2C241E] text-[#F3C85F]'
+                        : 'bg-white border-[#D8C396] text-[#5C5044]'
+                    }`}
+                  >
+                    🍱 正常1份
+                  </button>
+                  <input
+                    type="text"
+                    value={quickPatchQuery}
+                    onChange={(e) => setQuickPatchQuery(e.target.value)}
+                    placeholder="搜尋其他菜..."
+                    className="w-28 px-2 py-0.5 rounded-lg border border-[#D8C396] bg-white text-[11px] text-[#2C241E]"
+                  />
+                </div>
               </div>
               <div className="flex flex-wrap gap-1">
                 {quickPatchQuery.trim()
@@ -778,23 +834,26 @@ export const MealLoggerModal: React.FC<Props> = ({
                         .includes(quickPatchQuery.trim().toLowerCase())
                     )
                       .slice(0, 12)
-                      .map((preset) => (
-                        <button
-                          key={preset.id}
-                          type="button"
-                          onClick={() => {
-                            addPresetFood(preset, 1);
-                            setQuickPatchQuery('');
-                          }}
-                          className="px-2 py-1 rounded-full bg-white hover:bg-[#F3C85F]/40 border border-[#DFC27D] text-[11px] font-bold text-[#2C241E] transition active:scale-95"
-                        >
-                          + {preset.name} ({preset.calories})
-                        </button>
-                      ))
+                      .map((preset) => {
+                        const kcal = Math.round(preset.calories * quickPatchScale);
+                        return (
+                          <button
+                            key={preset.id}
+                            type="button"
+                            onClick={() => {
+                              addPresetFood(preset, quickPatchScale);
+                              setQuickPatchQuery('');
+                            }}
+                            className="px-2 py-1 rounded-full bg-white hover:bg-[#F3C85F]/40 border border-[#DFC27D] text-[11px] font-bold text-[#2C241E] transition active:scale-95"
+                          >
+                            + {preset.name} ({kcal})
+                          </button>
+                        );
+                      })
                   : QUICK_PATCH_BUFFET_IDS.map((entry) => {
                       const preset = TAIWAN_FOOD_PRESETS.find((p) => p.id === entry.id);
                       if (!preset) return null;
-                      const scale = entry.scale || 1;
+                      const scale = entry.fixedScale ?? quickPatchScale;
                       const kcal = Math.round(preset.calories * scale);
                       return (
                         <button
