@@ -559,4 +559,82 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     const afterUnpin = mergeVaultStates(devBUnpinned, devA);
     expect(afterUnpin.favoriteSports).toHaveLength(0);
   });
+
+  it('self-heals torn multi-chunk cloud payloads without falsely throwing wrong-passcode error', async () => {
+    const cloudKv = new Map<string, string>();
+    const activeBrowserStorage = new Map<string, string>();
+    vi.stubGlobal('localStorage', {
+      getItem: (k: string) => activeBrowserStorage.get(k) ?? null,
+      setItem: (k: string, v: string) => activeBrowserStorage.set(k, v),
+      removeItem: (k: string) => activeBrowserStorage.delete(k),
+    });
+
+    vi.stubGlobal('fetch', vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input);
+      if (url.includes('api.textdb.online/update/')) {
+        const params = new URLSearchParams(String(init?.body || ''));
+        const k = params.get('key') || '';
+        const v = params.get('value') || '';
+        cloudKv.set(`online:${k}`, v);
+        return new Response(JSON.stringify({ status: 1 }), { status: 200 });
+      }
+      if (url.includes('textdb.online/')) {
+        const keyPart = decodeURIComponent(url.split('textdb.online/')[1].split('?')[0]);
+        return new Response(cloudKv.get(`online:${keyPart}`) || '', { status: 200 });
+      }
+      if (url.includes('textdb.dev/api/data/')) {
+        const keyPart = decodeURIComponent(url.split('textdb.dev/api/data/')[1].split('?')[0]);
+        if (init?.method === 'POST') {
+          const parsed = JSON.parse(String(init.body || '{}'));
+          cloudKv.set(`dev:${keyPart}`, parsed.payload || '');
+          return new Response(JSON.stringify(parsed), { status: 200 });
+        }
+        const saved = cloudKv.get(`dev:${keyPart}`);
+        return new Response(saved ? JSON.stringify({ payload: saved }) : '', { status: 200 });
+      }
+      return new Response('', { status: 200 });
+    }));
+
+    const testPass = 'TestSelfHeal99';
+    const identity = await deriveVaultIdentity(testPass);
+
+    // Simulate a torn multi-chunk upload where chunk 0 and chunk 1 come from mismatched encryptions
+    cloudKv.set(`online:${identity.vaultKey}`, 'BCCHUNK1:2:BC2:OLD_HEADER_CHUNK_0_CORRUPTED');
+    cloudKv.set(`online:${identity.vaultKey}_p1`, 'NEW_CHUNK_1_MISMATCHED_TAG');
+    cloudKv.set(`dev:${identity.vaultKey}`, 'BCCHUNK1:2:BC2:OLD_HEADER_CHUNK_0_CORRUPTED');
+    cloudKv.set(`dev:${identity.vaultKey}_p1`, 'NEW_CHUNK_1_MISMATCHED_TAG');
+
+    const localWithMeal = createInitialVaultState();
+    localWithMeal.isUneditedDefault = false;
+    localWithMeal.updatedAt = 99999;
+    localWithMeal.meals = [
+      {
+        id: 'meal-heal-1',
+        dateKey: '2026-11-11',
+        category: 'lunch',
+        title: '空盤自夾便當',
+        items: [{ id: 'i1', name: '滷雞腿', portion: '1支', calories: 260, proteinG: 24, carbsG: 3, fatG: 16 }],
+        totalCalories: 260,
+        proteinG: 24,
+        carbsG: 3,
+        fatG: 16,
+        praise: '修復成功！',
+        createdAt: 99999,
+        updatedAt: 99999,
+      },
+    ];
+
+    const healOutcome = await syncWithCloudVault(localWithMeal, testPass, false);
+    expect(healOutcome.ok).toBe(true);
+    expect(healOutcome.errorMessage).toBeUndefined();
+    expect(healOutcome.pushedToCloud).toBe(true);
+    expect(healOutcome.mergedState.meals).toHaveLength(1);
+
+    // Verify that a subsequent fresh browser pull now succeeds cleanly after self-healing
+    const freshPull = await syncWithCloudVault(createInitialVaultState(), testPass, false);
+    expect(freshPull.ok).toBe(true);
+    expect(freshPull.pulledFromCloud).toBe(true);
+    expect(freshPull.mergedState.meals).toHaveLength(1);
+    expect(freshPull.mergedState.meals[0].title).toBe('空盤自夾便當');
+  });
 });

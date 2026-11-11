@@ -618,11 +618,14 @@ export function mergeVaultStates(local: VaultState, remote: VaultState): VaultSt
 }
 
 /**
- * 主索引僅保留最近 12 筆迷你縮圖供秒開顯示，所有清晰美食照片另透過加密分片獨立同步至雙雲端！
+ * 主索引僅保留最近 6 筆輕量迷你縮圖（<= 6KB）供秒開顯示，確保主索引永遠小於 40KB（單一分片原子寫入，徹底杜絕多分片半套寫入撕裂！），
+ * 所有清晰美食照片與其餘縮圖均透過加密分片獨立同步至雙雲端！
  */
 export function compactStateForCloud(state: VaultState): VaultState {
   const meals = state.meals.map((m, idx) => {
-    if (idx < 12) return m;
+    if (idx < 6 && (!m.photoThumb || m.photoThumb.length <= 6000)) {
+      return m;
+    }
     const { photoThumb: _omit, ...rest } = m;
     return rest;
   });
@@ -632,6 +635,7 @@ export function compactStateForCloud(state: VaultState): VaultState {
 /**
  * 寫入永久雲端 KV (textdb.online) — 嚴格使用 application/x-www-form-urlencoded + URLSearchParams，
  * 並強制解析 JSON `status === 1`（防止超過 20 萬字元時 HTTP 200 `{status:0}` 假成功！）
+ * 注意：不設定 `keepalive: true`，因為瀏覽器對所有並行 keepalive 請求設有 64KB 總量硬上限，超過會導致第 2 個請求直接被瀏覽器中斷！
  */
 export function buildTextDbFormBody(key: string, value: string): string {
   return new URLSearchParams({ key, value }).toString();
@@ -648,9 +652,6 @@ async function writeTextDbOnlineSingle(key: string, value: string): Promise<bool
       body,
       signal: ctrl?.signal,
     };
-    if (body.length < 55000) {
-      init.keepalive = true;
-    }
     const res = await fetch(TEXTDB_UPDATE_URL, init);
     if (!res.ok) return false;
     const txt = (await res.text()).trim();
@@ -683,9 +684,6 @@ async function writeTextDbDevSingle(key: string, value: string): Promise<boolean
       body: bodyStr,
       signal: ctrl?.signal,
     };
-    if (bodyStr.length < 55000) {
-      init.keepalive = true;
-    }
     const res = await fetch(`${TEXTDB_DEV_API_URL}/${encodeURIComponent(key)}`, init);
     return res.ok;
   } catch {
@@ -967,9 +965,11 @@ export async function syncWithCloudVault(
       }
     }
 
-    if (rawCandidates.length > 0 && !pulledFromCloud) {
-      throw new Error('通行碼不正確，無法解開既有雲端加密紀錄');
-    }
+    // 注意：vaultKey 本身即為 SHA-256("bobo_calo_vault_v1:" + passcode) 衍生之 128-bit 密碼學指紋，
+    // 能命中 rawCandidates.length > 0 代表通行碼 100% 正確！
+    // 若此時 decrypt 失敗，代表先前多分片上傳曾因瀏覽器 keepalive 64KB 限制產生半套分片 (torn chunk)，
+    // 此時絕不可誤報「通行碼不正確」，應保留本機完整紀錄並自動重新寫入單一完整加密包完成自我修復 (Self-Healing)！
+    const needsCloudSelfHeal = rawCandidates.length > 0 && !pulledFromCloud;
 
     if (pulledFromCloud && merged.meals.length > 0) {
       const hydratedMeals = await hydrateMealPhotoShards(
@@ -986,9 +986,13 @@ export async function syncWithCloudVault(
     await saveLocalVaultState(merged);
 
     const shouldPush =
-      !merged.isUneditedDefault &&
-      merged.updatedAt > 0 &&
-      (rawCandidates.length < 2 || merged.updatedAt > maxRemoteUpdatedAt || forcePushIfEdited);
+      (!merged.isUneditedDefault &&
+        merged.updatedAt > 0 &&
+        (rawCandidates.length < 2 ||
+          merged.updatedAt > maxRemoteUpdatedAt ||
+          forcePushIfEdited ||
+          needsCloudSelfHeal)) ||
+      (needsCloudSelfHeal && hasUserRecords(merged));
 
     let pushedToCloud = false;
     if (shouldPush) {
