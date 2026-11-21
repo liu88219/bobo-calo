@@ -402,6 +402,39 @@ export function estimateMealLocallyInstant(
 }
 
 /**
+ * 單筆 0.01 秒本機估算（用於新增「AI 沒判讀到的漏抓項目」時即時帶入熱量與三大營養素）
+ */
+export function estimateSingleFoodItemLocally(
+  name: string,
+  portion = '1份'
+): {
+  presetName: string;
+  portion: string;
+  calories: number;
+  proteinG: number;
+  carbsG: number;
+  fatG: number;
+} | null {
+  const cleanName = name.trim();
+  if (!cleanName) return null;
+  const found = findPresetByToken(cleanName);
+  if (!found) return null;
+  const { scale, label } = parseChineseOrArabicMultiplier(
+    `${cleanName} ${portion}`,
+    found.unitDivisor
+  );
+  const p = found.preset;
+  return {
+    presetName: p.name.split(/[（(]/)[0].trim(),
+    portion: portion.trim() || (label ? `${label} (${p.portion})` : p.portion),
+    calories: Math.max(1, Math.round(p.calories * scale)),
+    proteinG: Math.round(p.proteinG * scale * 10) / 10,
+    carbsG: Math.round(p.carbsG * scale * 10) / 10,
+    fatG: Math.round(p.fatG * scale * 10) / 10,
+  };
+}
+
+/**
  * 嘗試以 0.01 秒本機庫直接重算使用者修改的項目清單（無額外修正備註且全部品項命中時啟用）
  */
 export function tryRecalculateItemsLocally(

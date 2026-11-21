@@ -39,7 +39,10 @@ import {
   PhotoQualityMode,
   AnalysisSource,
 } from '../services/geminiService';
-import { estimateMealLocallyInstant } from '../services/localFoodEstimator';
+import {
+  estimateMealLocallyInstant,
+  estimateSingleFoodItemLocally,
+} from '../services/localFoodEstimator';
 import { getLocalHiResPhoto, saveLocalHiResPhoto } from '../services/cloudSync';
 
 interface Props {
@@ -149,8 +152,12 @@ export const MealLoggerModal: React.FC<Props> = ({
   const [buffetSubFilter, setBuffetSubFilter] = useState<'all' | BuffetSubType>('all');
   const [quickPatchQuery, setQuickPatchQuery] = useState('');
   const [quickPatchScale, setQuickPatchScale] = useState<0.5 | 1>(0.5);
+  const [missingDishDraft, setMissingDishDraft] = useState('');
+  const [pendingFocusItemId, setPendingFocusItemId] = useState<string | null>(null);
   const [customName, setCustomName] = useState('');
   const [customCalories, setCustomCalories] = useState('');
+
+  const itemNameInputRefs = useRef<Record<string, HTMLInputElement | null>>({});
 
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
@@ -407,19 +414,170 @@ export const MealLoggerModal: React.FC<Props> = ({
     }
   };
 
-  const addBlankEditableItem = () => {
-    const newItem: MealFoodItem = {
-      id: `manual-edit-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
-      name: '',
-      portion: '1份',
-      calories: 0,
-      proteinG: 0,
-      carbsG: 0,
-      fatG: 0,
-    };
+  useEffect(() => {
+    if (!pendingFocusItemId) return;
+    const el = itemNameInputRefs.current[pendingFocusItemId];
+    if (el) {
+      el.focus();
+      el.scrollIntoView({ behavior: 'smooth', block: 'center' });
+    }
+    setPendingFocusItemId(null);
+  }, [pendingFocusItemId, items]);
+
+  const addBlankEditableItem = (prefillName = '', prefillPortion = '1份') => {
+    const cleanName = prefillName.trim();
+    const localHit = cleanName ? estimateSingleFoodItemLocally(cleanName, prefillPortion) : null;
+    const newId = `manual-edit-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`;
+    const newItem: MealFoodItem = localHit
+      ? {
+          id: newId,
+          name: cleanName,
+          portion: prefillPortion,
+          calories: localHit.calories,
+          proteinG: localHit.proteinG,
+          carbsG: localHit.carbsG,
+          fatG: localHit.fatG,
+        }
+      : {
+          id: newId,
+          name: cleanName,
+          portion: prefillPortion,
+          calories: 0,
+          proteinG: 0,
+          carbsG: 0,
+          fatG: 0,
+        };
     setItems((prev) => [...prev, newItem]);
-    setNeedsRecalc(true);
+    setHasAnalyzed(true);
+    setRecalcSuccessMsg(
+      localHit ? `⚡ 已 0 秒自動補上「${cleanName}」（約 ${localHit.calories} kcal）！` : ''
+    );
+    if (!localHit) {
+      setNeedsRecalc(true);
+      setPendingFocusItemId(newId);
+    }
+  };
+
+  /** 一句話快速補上 1～多個 AI 沒判讀到的食物（命中本機庫 0 秒自動算熱量，其餘加入待算列） */
+  const handleAddMissingDishesFromText = () => {
+    const raw = missingDishDraft.trim();
+    if (!raw) return;
+    setErrorMsg('');
+    const est = estimateMealLocallyInstant(raw, category);
+    const added: MealFoodItem[] = [...est.items];
+    const now = Date.now();
+    est.unmatchedTokens.forEach((tok, idx) => {
+      added.push({
+        id: `missing-${now}-${idx}-${Math.random().toString(36).slice(2, 5)}`,
+        name: tok,
+        portion: quickPatchScale === 0.5 ? '夾一點/半份' : '1份',
+        calories: 0,
+        proteinG: 0,
+        carbsG: 0,
+        fatG: 0,
+      });
+    });
+    if (added.length === 0) return;
+    setItems((prev) => [...prev, ...added]);
+    setHasAnalyzed(true);
+    setMissingDishDraft('');
+    if (est.unmatchedTokens.length > 0) {
+      setNeedsRecalc(true);
+      setRecalcSuccessMsg(
+        est.items.length > 0
+          ? `✅ 已補進 ${added.length} 樣（${est.items.length} 樣已秒算，${est.unmatchedTokens.length} 樣請按下方「只算漏掉項目」或「重新計算卡路里」！）`
+          : `✅ 已加入「${est.unmatchedTokens.join('、')}」！可手填大卡或點下方「只算新增項目」自動算熱量 ✨`
+      );
+    } else {
+      setRecalcSuccessMsg(
+        `⚡ 已 0 秒自動補上 ${added.length} 樣食物（+${est.totalCalories} kcal），原本菜色完全保留！`
+      );
+    }
+  };
+
+  /** 只幫新增的 0 kcal 項目補算熱量，100% 保留原本已判讀/已編輯菜色的數值！ */
+  const handleCalculateMissingOnly = async () => {
+    setErrorMsg('');
     setRecalcSuccessMsg('');
+    const targets = items.filter((i) => i.name.trim().length > 0 && i.calories <= 0);
+    if (targets.length === 0) return;
+
+    // Step 1: instant local lookup first
+    const resolvedMap = new Map<string, MealFoodItem>();
+    const needAi: MealFoodItem[] = [];
+    for (const row of targets) {
+      const hit = estimateSingleFoodItemLocally(row.name, row.portion);
+      if (hit) {
+        resolvedMap.set(row.id, {
+          ...row,
+          calories: hit.calories,
+          proteinG: hit.proteinG,
+          carbsG: hit.carbsG,
+          fatG: hit.fatG,
+        });
+      } else {
+        needAi.push(row);
+      }
+    }
+
+    if (needAi.length === 0) {
+      setItems((prev) => prev.map((it) => resolvedMap.get(it.id) || it));
+      setNeedsRecalc(false);
+      setRecalcSuccessMsg(`⚡ 已 0.01 秒補算完成 ${targets.length} 筆新增食物，原本菜色完全保留！`);
+      return;
+    }
+
+    setRecalculating(true);
+    try {
+      const res = await recalculateMealFromEdits({
+        apiKey: geminiApiKey,
+        category,
+        editedItems: needAi.map((i) => ({ name: i.name, portion: i.portion })),
+      });
+      needAi.forEach((orig, idx) => {
+        const aiItem = res.items[idx];
+        if (aiItem) {
+          resolvedMap.set(orig.id, {
+            ...orig,
+            name: aiItem.name || orig.name,
+            portion: aiItem.portion || orig.portion,
+            calories: aiItem.calories,
+            proteinG: aiItem.proteinG,
+            carbsG: aiItem.carbsG,
+            fatG: aiItem.fatG,
+          });
+        }
+      });
+      setItems((prev) => prev.map((it) => resolvedMap.get(it.id) || it));
+      setNeedsRecalc(false);
+      const badge = formatSpeedBadge(res.source, res.elapsedMs);
+      if (badge) setLastSpeedBadge(badge);
+      setRecalcSuccessMsg(
+        `✅ 已補算 ${targets.length} 筆新增項目，原本已辨識好的菜色 100% 保留！`
+      );
+    } catch (err) {
+      setErrorMsg(err instanceof Error ? err.message : '補算失敗，請直接手填大卡或稍後重試喔');
+    } finally {
+      setRecalculating(false);
+    }
+  };
+
+  const applyLocalSuggestionToRow = (id: string) => {
+    setItems((prev) =>
+      prev.map((it) => {
+        if (it.id !== id) return it;
+        const hit = estimateSingleFoodItemLocally(it.name, it.portion);
+        if (!hit) return it;
+        return {
+          ...it,
+          calories: hit.calories,
+          proteinG: hit.proteinG,
+          carbsG: hit.carbsG,
+          fatG: hit.fatG,
+        };
+      })
+    );
+    setRecalcSuccessMsg('⚡ 已套用本機熱量估算！');
   };
 
   const updateItemField = (id: string, field: 'name' | 'portion', value: string) => {
@@ -534,8 +692,59 @@ export const MealLoggerModal: React.FC<Props> = ({
     let resolvedTitle = mealTitle.trim();
     let resolvedPraise = praise.trim();
 
-    // 若使用者新增了漏掉的食物（熱量尚為 0）或填了修正說明但忘記先按「重新計算」，儲存時貼心自動幫她重算！
-    if (validItems.some((i) => i.calories <= 0) || (validItems.length === 0 && correctionNote.trim())) {
+    // 若使用者新增了漏掉的食物（熱量尚為 0）或填了修正說明但忘記先按「重新計算」，儲存時貼心自動幫她補算！
+    const missingZeroItems = validItems.filter((i) => i.calories <= 0);
+    if (missingZeroItems.length > 0 && !correctionNote.trim() && validItems.length > missingZeroItems.length) {
+      // 保留既有已算好的菜色數值，只補算 0 kcal 的新增項目（本機優先 0.01 秒！）
+      const resolvedMap = new Map<string, MealFoodItem>();
+      const needAi: MealFoodItem[] = [];
+      for (const row of missingZeroItems) {
+        const hit = estimateSingleFoodItemLocally(row.name, row.portion);
+        if (hit) {
+          resolvedMap.set(row.id, {
+            ...row,
+            calories: hit.calories,
+            proteinG: hit.proteinG,
+            carbsG: hit.carbsG,
+            fatG: hit.fatG,
+          });
+        } else {
+          needAi.push(row);
+        }
+      }
+      if (needAi.length > 0) {
+        setRecalculating(true);
+        setErrorMsg('');
+        try {
+          const res = await recalculateMealFromEdits({
+            apiKey: geminiApiKey,
+            category,
+            editedItems: needAi.map((i) => ({ name: i.name, portion: i.portion })),
+          });
+          needAi.forEach((orig, idx) => {
+            const aiItem = res.items[idx];
+            if (aiItem) {
+              resolvedMap.set(orig.id, {
+                ...orig,
+                calories: aiItem.calories,
+                proteinG: aiItem.proteinG,
+                carbsG: aiItem.carbsG,
+                fatG: aiItem.fatG,
+              });
+            }
+          });
+        } catch (err) {
+          setRecalculating(false);
+          setErrorMsg(err instanceof Error ? err.message : '補算新增食物失敗，請手填大卡或點「重新計算卡路里」再試一次喔');
+          return;
+        }
+        setRecalculating(false);
+      }
+      validItems = validItems.map((it) => resolvedMap.get(it.id) || it);
+    } else if (
+      missingZeroItems.length > 0 ||
+      (validItems.length === 0 && correctionNote.trim())
+    ) {
       setRecalculating(true);
       setErrorMsg('');
       try {
@@ -1094,10 +1303,10 @@ export const MealLoggerModal: React.FC<Props> = ({
                 </button>
                 <button
                   type="button"
-                  onClick={addBlankEditableItem}
-                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EFECE3] hover:bg-[#E2DFD4] text-[11px] font-bold text-[#25385B]"
+                  onClick={() => addBlankEditableItem()}
+                  className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#EFECE3] hover:bg-[#E2DFD4] border border-[#C8BFB0] text-[11px] font-black text-[#25385B]"
                 >
-                  <Plus className="w-3 h-3" /> 新增自訂
+                  <Plus className="w-3 h-3" /> 新增漏掉的食物
                 </button>
               </div>
             </div>
@@ -1141,8 +1350,9 @@ export const MealLoggerModal: React.FC<Props> = ({
                 </div>
               </div>
               <div className="flex flex-wrap gap-1">
-                {quickPatchQuery.trim()
-                  ? TAIWAN_FOOD_PRESETS.filter((p) =>
+                {quickPatchQuery.trim() ? (
+                  <>
+                    {TAIWAN_FOOD_PRESETS.filter((p) =>
                       `${p.name} ${p.group}`
                         .toLowerCase()
                         .includes(quickPatchQuery.trim().toLowerCase())
@@ -1163,24 +1373,41 @@ export const MealLoggerModal: React.FC<Props> = ({
                             + {preset.name} ({kcal})
                           </button>
                         );
-                      })
-                  : QUICK_PATCH_BUFFET_IDS.map((entry) => {
-                      const preset = TAIWAN_FOOD_PRESETS.find((p) => p.id === entry.id);
-                      if (!preset) return null;
-                      const scale = entry.fixedScale ?? quickPatchScale;
-                      const kcal = Math.round(preset.calories * scale);
-                      return (
-                        <button
-                          key={`${entry.id}-${scale}`}
-                          type="button"
-                          onClick={() => addPresetFood(preset, scale)}
-                          className="px-2 py-1 rounded-full bg-white hover:bg-[#F3C85F]/40 border border-[#DFC27D] text-[11px] font-bold text-[#2C241E] transition active:scale-95"
-                        >
-                          + {entry.label}{' '}
-                          <span className="text-[#C83B32] font-black">{kcal}</span>
-                        </button>
-                      );
-                    })}
+                      })}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        const name = quickPatchQuery.trim();
+                        addBlankEditableItem(
+                          name,
+                          quickPatchScale === 0.5 ? '夾一點/半份' : '1份'
+                        );
+                        setQuickPatchQuery('');
+                      }}
+                      className="px-2.5 py-1 rounded-full bg-[#25385B] text-white text-[11px] font-bold transition active:scale-95"
+                    >
+                      + 直接新增「{quickPatchQuery.trim()}」
+                    </button>
+                  </>
+                ) : (
+                  QUICK_PATCH_BUFFET_IDS.map((entry) => {
+                    const preset = TAIWAN_FOOD_PRESETS.find((p) => p.id === entry.id);
+                    if (!preset) return null;
+                    const scale = entry.fixedScale ?? quickPatchScale;
+                    const kcal = Math.round(preset.calories * scale);
+                    return (
+                      <button
+                        key={`${entry.id}-${scale}`}
+                        type="button"
+                        onClick={() => addPresetFood(preset, scale)}
+                        className="px-2 py-1 rounded-full bg-white hover:bg-[#F3C85F]/40 border border-[#DFC27D] text-[11px] font-bold text-[#2C241E] transition active:scale-95"
+                      >
+                        + {entry.label}{' '}
+                        <span className="text-[#C83B32] font-black">{kcal}</span>
+                      </button>
+                    );
+                  })
+                )}
               </div>
             </div>
 
@@ -1197,68 +1424,126 @@ export const MealLoggerModal: React.FC<Props> = ({
 
             {/* Editable Item Cards */}
             <div className="space-y-2">
-              {items.map((it, idx) => (
-                <div
-                  key={it.id}
-                  className="p-3 rounded-2xl bg-[#EFECE3] space-y-2"
-                >
-                  <div className="flex items-center gap-2">
-                    <span className="w-5 h-5 rounded-full bg-[#F3C85F] text-[#2C241E] text-[11px] font-black flex items-center justify-center shrink-0">
-                      {idx + 1}
-                    </span>
-                    <input
-                      type="text"
-                      value={it.name}
-                      onChange={(e) => updateItemField(it.id, 'name', e.target.value)}
-                      placeholder="輸入正確菜名（如：煎豆腐、無糖豆漿）"
-                      className="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl border border-[#D8D2C5] bg-white text-xs font-bold text-[#2C241E] focus:outline-none focus:border-[#25385B]"
-                    />
-                    <input
-                      type="text"
-                      value={it.portion}
-                      onChange={(e) => updateItemField(it.id, 'portion', e.target.value)}
-                      placeholder="份量 (如 半碗)"
-                      className="w-24 px-2.5 py-1.5 rounded-xl border border-[#D8D2C5] bg-white text-xs text-[#4A3F35] focus:outline-none focus:border-[#25385B]"
-                    />
-                    <button
-                      type="button"
-                      onClick={() => removeItem(it.id)}
-                      className="p-1.5 text-[#B07268] hover:text-[#7D362B] shrink-0"
-                      title="刪除此誤判項目"
-                    >
-                      <Trash2 className="w-3.5 h-3.5" />
-                    </button>
-                  </div>
-
-                  <div className="flex items-center justify-between pl-7 text-[11px] text-[#6E6459]">
-                    <span>
-                      蛋白質 {it.proteinG}g · 碳水 {it.carbsG}g · 脂肪 {it.fatG}g
-                    </span>
-                    <div className="flex items-center gap-1.5">
-                      <button
-                        type="button"
-                        onClick={() => scaleItem(it.id, 0.5)}
-                        className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-[#4A3F35]"
-                        title="熱量與份量直接減半"
-                      >
-                        ×0.5
-                      </button>
+              {items.map((it, idx) => {
+                const localHint =
+                  it.calories === 0 && it.name.trim()
+                    ? estimateSingleFoodItemLocally(it.name, it.portion)
+                    : null;
+                return (
+                  <div
+                    key={it.id}
+                    className={`p-3 rounded-2xl space-y-2 border ${
+                      it.calories === 0
+                        ? 'bg-[#FFF6E2] border-[#DFC27D]'
+                        : 'bg-[#EFECE3] border-transparent'
+                    }`}
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="w-5 h-5 rounded-full bg-[#F3C85F] text-[#2C241E] text-[11px] font-black flex items-center justify-center shrink-0">
+                        {idx + 1}
+                      </span>
+                      <input
+                        ref={(el) => {
+                          itemNameInputRefs.current[it.id] = el;
+                        }}
+                        type="text"
+                        value={it.name}
+                        onChange={(e) => updateItemField(it.id, 'name', e.target.value)}
+                        placeholder="輸入漏掉的菜名（如：煎豆腐、無糖豆漿）"
+                        className="flex-1 min-w-0 px-2.5 py-1.5 rounded-xl border border-[#D8D2C5] bg-white text-xs font-bold text-[#2C241E] focus:outline-none focus:border-[#25385B]"
+                      />
                       <input
                         type="text"
-                        inputMode="numeric"
-                        placeholder="0"
-                        value={it.calories === 0 ? '' : String(it.calories)}
-                        onChange={(e) => {
-                          const cleaned = e.target.value.replace(/[^0-9]/g, '');
-                          updateItemCalories(it.id, cleaned === '' ? 0 : Number(cleaned));
-                        }}
-                        className="w-16 px-2 py-0.5 rounded-lg border border-[#D8D2C5] bg-white text-xs font-black text-right text-[#C83B32]"
+                        value={it.portion}
+                        onChange={(e) => updateItemField(it.id, 'portion', e.target.value)}
+                        placeholder="份量 (如 半份)"
+                        className="w-24 px-2.5 py-1.5 rounded-xl border border-[#D8D2C5] bg-white text-xs text-[#4A3F35] focus:outline-none focus:border-[#25385B]"
                       />
-                      <span>kcal</span>
+                      <button
+                        type="button"
+                        onClick={() => removeItem(it.id)}
+                        className="p-1.5 text-[#B07268] hover:text-[#7D362B] shrink-0"
+                        title="刪除此誤判項目"
+                      >
+                        <Trash2 className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    <div className="flex items-center justify-between pl-7 text-[11px] text-[#6E6459] gap-2 flex-wrap">
+                      <span>
+                        蛋白質 {it.proteinG}g · 碳水 {it.carbsG}g · 脂肪 {it.fatG}g
+                      </span>
+                      <div className="flex items-center gap-1.5">
+                        {localHint && (
+                          <button
+                            type="button"
+                            onClick={() => applyLocalSuggestionToRow(it.id)}
+                            className="px-2 py-0.5 rounded-full bg-[#485F44] text-white text-[10px] font-black transition active:scale-95"
+                            title="直接套用內建台灣食物庫熱量（0.01 秒免等）"
+                          >
+                            ⚡ 秒填 {localHint.calories} kcal
+                          </button>
+                        )}
+                        <button
+                          type="button"
+                          onClick={() => scaleItem(it.id, 0.5)}
+                          className="px-1.5 py-0.5 rounded bg-white text-[10px] font-bold text-[#4A3F35]"
+                          title="熱量與份量直接減半"
+                        >
+                          ×0.5
+                        </button>
+                        <input
+                          type="text"
+                          inputMode="numeric"
+                          placeholder="0"
+                          value={it.calories === 0 ? '' : String(it.calories)}
+                          onChange={(e) => {
+                            const cleaned = e.target.value.replace(/[^0-9]/g, '');
+                            updateItemCalories(it.id, cleaned === '' ? 0 : Number(cleaned));
+                          }}
+                          className="w-16 px-2 py-0.5 rounded-lg border border-[#D8D2C5] bg-white text-xs font-black text-right text-[#C83B32]"
+                        />
+                        <span>kcal</span>
+                      </div>
                     </div>
                   </div>
+                );
+              })}
+
+              {/* Quick inline row to add any missing food right below analyzed list */}
+              <div className="p-2.5 rounded-2xl border-2 border-dashed border-[#C4B7A4] bg-white/80 space-y-2">
+                <div className="flex gap-1.5">
+                  <input
+                    type="text"
+                    value={missingDishDraft}
+                    onChange={(e) => setMissingDishDraft(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddMissingDishesFromText();
+                      }
+                    }}
+                    placeholder="補上沒判讀到的菜（例：蒸蛋、滷豆干、椒麻雞）"
+                    className="flex-1 min-w-0 px-3 py-1.5 rounded-xl border border-[#D8D2C5] bg-[#FAF8F3] text-xs text-[#2C241E] placeholder:text-[#9E9487] focus:outline-none focus:border-[#485F44]"
+                  />
+                  <button
+                    type="button"
+                    disabled={!missingDishDraft.trim()}
+                    onClick={handleAddMissingDishesFromText}
+                    className="px-3 py-1.5 rounded-xl bg-[#485F44] text-white text-xs font-black shrink-0 disabled:opacity-45 flex items-center gap-1"
+                  >
+                    <Plus className="w-3.5 h-3.5" /> 補進清單
+                  </button>
                 </div>
-              ))}
+                <button
+                  type="button"
+                  onClick={() => addBlankEditableItem()}
+                  className="w-full py-1.5 rounded-xl bg-[#EFECE3] hover:bg-[#E4DFD2] text-[#25385B] text-[11px] font-black flex items-center justify-center gap-1 transition"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  新增一列空白食物（自己輸入菜名／份量／大卡）
+                </button>
+              </div>
             </div>
 
             {/* AI Recalculate Box after User Edits */}
@@ -1271,16 +1556,45 @@ export const MealLoggerModal: React.FC<Props> = ({
             >
               <div className="text-xs font-black text-[#2C241E]">
                 {needsRecalc
-                  ? '✨ 偵測到妳修改了菜名或份量！點下方按鈕讓 AI 重新精算卡路里：'
-                  : '🔄 若 AI 照片判斷有誤：改完上方菜名／份量，或補充一句修正說明即可重算！'}
+                  ? '✨ 偵測到妳新增或修改了菜名／份量！點下方按鈕幫妳自動算出卡路里：'
+                  : '🔄 若 AI 照片判斷有誤或少判讀：改完上方菜名／份量，或補充一句修正說明即可重算！'}
               </div>
               <input
                 type="text"
                 value={correctionNote}
                 onChange={(e) => setCorrectionNote(e.target.value)}
-                placeholder="選填修正說明（例：其實是清蒸不是油炸、飲料是無糖燕麥奶）"
+                placeholder="選填修正說明（例：其實是清蒸不是油炸、還多喝了一杯無糖燕麥奶）"
                 className="w-full px-3 py-2 rounded-xl border border-[#D8D2C5] bg-white text-xs text-[#2C241E] placeholder:text-[#9E9487]"
               />
+              {(() => {
+                const pendingMissing = items.filter(
+                  (i) => i.name.trim().length > 0 && i.calories <= 0
+                ).length;
+                const hasExistingCalculated = items.some((i) => i.calories > 0);
+                if (pendingMissing > 0 && hasExistingCalculated && !correctionNote.trim()) {
+                  return (
+                    <button
+                      type="button"
+                      disabled={recalculating || analyzing}
+                      onClick={handleCalculateMissingOnly}
+                      className="w-full py-2.5 rounded-xl bg-[#485F44] text-white font-black text-xs doodle-btn flex items-center justify-center gap-1.5 disabled:opacity-60"
+                    >
+                      {recalculating ? (
+                        <>
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                          正在補算新增的 {pendingMissing} 樣食物...
+                        </>
+                      ) : (
+                        <>
+                          <Zap className="w-3.5 h-3.5" />
+                          只補算新增的 {pendingMissing} 樣（保留原本已判讀熱量！）
+                        </>
+                      )}
+                    </button>
+                  );
+                }
+                return null;
+              })()}
               <button
                 type="button"
                 disabled={recalculating || analyzing}

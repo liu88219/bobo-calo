@@ -38,7 +38,10 @@ import {
   parseTaiwanNutritionLabelText,
   recalculateMealFromEdits,
 } from '../services/geminiService';
-import { estimateMealLocallyInstant } from '../services/localFoodEstimator';
+import {
+  estimateMealLocallyInstant,
+  estimateSingleFoodItemLocally,
+} from '../services/localFoodEstimator';
 import { TAIWAN_FOOD_PRESETS } from '../data/taiwanFoods';
 
 describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
@@ -677,6 +680,13 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     expect(fetchSpy).not.toHaveBeenCalled();
     expect(instantRes.source).toBe('local-instant');
     expect(instantRes.totalCalories).toBe(265 + 135);
+
+    // Single missing item helper for post-scan quick patch
+    const steamedEggHalf = estimateSingleFoodItemLocally('蒸蛋', '夾一點/半份');
+    expect(steamedEggHalf).not.toBeNull();
+    expect(steamedEggHalf!.calories).toBe(40); // 80 * 0.5
+    expect(estimateSingleFoodItemLocally('滷豆干', '1份')?.calories).toBe(105);
+    expect(estimateSingleFoodItemLocally('泰式椒麻雞', '1份')).toBeNull();
 
     // Zero network requests when recalculating edits without correctionNote for known foods
     const instantRecalc = await recalculateMealFromEdits({
