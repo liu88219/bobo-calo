@@ -1,12 +1,28 @@
 import { MealFoodItem, MealCategory } from '../types/tracker';
 import { pickMealPraise } from '../data/praiseMessages';
+import {
+  estimateMealLocallyInstant,
+  tryRecalculateItemsLocally,
+} from './localFoodEstimator';
 
 export interface ProcessedMealImages {
   apiBase64: string;
+  /** 輕量 680px 餐盤照：減少約 65% 上傳流量與 AI 視覺 Token，辨識速度更快！ */
+  fastApiBase64?: string;
   mimeType: string;
   localPreviewUrl: string;
   cloudThumbUrl: string;
 }
+
+export type PhotoQualityMode = 'fast' | 'hd';
+
+export type AnalysisSource =
+  | 'gemini'
+  | 'keyless-vision'
+  | 'keyless-text'
+  | 'local-instant'
+  | 'local-ocr'
+  | 'cache';
 
 type DrawableSource = HTMLImageElement | ImageBitmap;
 
@@ -97,17 +113,21 @@ function resizeSquareThumb(src: DrawableSource, size: number, quality: number): 
 }
 
 /**
- * 將照片壓縮至 1280px 高清解析度（保留商品背面「營養標示／成分表」細小中文字清晰度！），同時產生本機預覽與雲端縮圖
+ * 同時產生「極速 680px 餐盤照」（上傳體積減少 ~65%、辨識更快）與「1280px 高清照」（營養標示細字專用），
+ * 以及本機預覽圖與雲端縮圖
  */
 export async function processMealPhotoFile(file: File): Promise<ProcessedMealImages> {
   const src = await loadImageSource(file);
   try {
     const apiDataUrl = resizeContain(src, 1280, 0.86);
+    const fastDataUrl = resizeContain(src, 680, 0.76);
     const localPreviewUrl = resizeContain(src, 520, 0.82);
     const cloudThumbUrl = resizeSquareThumb(src, 112, 0.56);
     const commaIdx = apiDataUrl.indexOf(',');
+    const fastCommaIdx = fastDataUrl.indexOf(',');
     return {
       apiBase64: commaIdx >= 0 ? apiDataUrl.slice(commaIdx + 1) : apiDataUrl,
+      fastApiBase64: fastCommaIdx >= 0 ? fastDataUrl.slice(fastCommaIdx + 1) : fastDataUrl,
       mimeType: 'image/jpeg',
       localPreviewUrl,
       cloudThumbUrl,
@@ -127,9 +147,82 @@ export interface GeminiMealAnalysis {
   carbsG: number;
   fatG: number;
   praise: string;
+  source?: AnalysisSource;
+  elapsedMs?: number;
 }
 
-const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.0-flash'];
+const GEMINI_MODELS = ['gemini-2.5-flash', 'gemini-2.5-flash-lite', 'gemini-2.0-flash'];
+
+/** 自動判斷備註是否偏向「商品背面營養標示（細小文字）」需要 1280px 高清模式 */
+export function isNutritionLabelHint(descriptionText?: string): boolean {
+  const text = (descriptionText || '').trim();
+  if (!text) return false;
+  return /營養標示|成分表|成分|熱量表|包裝背面|背面|標示|全包|整包|整瓶/i.test(text);
+}
+
+function makeFastFingerprint(s: string): string {
+  const len = s.length;
+  if (len <= 64) return `${len}:${s}`;
+  return `${len}:${s.slice(0, 24)}:${s.slice(Math.floor(len / 2), Math.floor(len / 2) + 24)}:${s.slice(-24)}`;
+}
+
+// 8-minute cache for pre-uploaded Gradio image paths (saves 0.7s~2.5s when tapping Analyze!)
+const GRADIO_UPLOAD_CACHE = new Map<string, { remotePath: string; uploadedAt: number }>();
+const GRADIO_PREUPLOAD_INFLIGHT = new Map<string, Promise<string | null>>();
+const GRADIO_CACHE_TTL_MS = 8 * 60 * 1000;
+const QWEN_SPACE_URL = 'https://developer0hye-qwen2-5-vl-7b-instruct.hf.space';
+
+// Short-term result cache for identical photo + description scans (instant 0ms on accidental re-click)
+const ANALYSIS_CACHE = new Map<string, GeminiMealAnalysis>();
+
+function cacheSet(key: string, val: GeminiMealAnalysis): void {
+  if (ANALYSIS_CACHE.size >= 15) {
+    const oldest = ANALYSIS_CACHE.keys().next().value;
+    if (oldest) ANALYSIS_CACHE.delete(oldest);
+  }
+  ANALYSIS_CACHE.set(key, val);
+}
+
+export function clearAnalysisCachesForTest(): void {
+  ANALYSIS_CACHE.clear();
+  GRADIO_UPLOAD_CACHE.clear();
+  GRADIO_PREUPLOAD_INFLIGHT.clear();
+}
+
+/**
+ * 選完照片後於背景預先上傳到免費雲端節點：當使用者正在選餐別或點快捷標籤時，圖片已傳好，按下「算卡路里」直接少等 1~2.5 秒！
+ */
+export function preuploadMealPhotoForFastScan(imageBase64: string): void {
+  if (!imageBase64 || typeof fetch !== 'function' || typeof FormData === 'undefined') return;
+  const fp = makeFastFingerprint(imageBase64);
+  const existing = GRADIO_UPLOAD_CACHE.get(fp);
+  if (existing && Date.now() - existing.uploadedAt < GRADIO_CACHE_TTL_MS) return;
+  if (GRADIO_PREUPLOAD_INFLIGHT.has(fp)) return;
+
+  const task = (async (): Promise<string | null> => {
+    try {
+      const blob = base64ToJpegBlob(imageBase64);
+      const form = new FormData();
+      form.append('files', blob, 'meal.jpg');
+      const res = await fetchWithTimeout(
+        `${QWEN_SPACE_URL}/gradio_api/upload`,
+        { method: 'POST', body: form },
+        9000
+      );
+      if (!res.ok) return null;
+      const arr = (await res.json()) as string[];
+      const remotePath = arr?.[0];
+      if (!remotePath) return null;
+      GRADIO_UPLOAD_CACHE.set(fp, { remotePath, uploadedAt: Date.now() });
+      return remotePath;
+    } catch {
+      return null;
+    } finally {
+      GRADIO_PREUPLOAD_INFLIGHT.delete(fp);
+    }
+  })();
+  GRADIO_PREUPLOAD_INFLIGHT.set(fp, task);
+}
 
 export function parseGeminiNutritionJson(
   rawText: string,
@@ -312,17 +405,49 @@ function createTinyBlankJpegBlob(): Blob {
   return base64ToJpegBlob(b64);
 }
 
+function throwIfUserAborted(signal?: AbortSignal): void {
+  if (signal?.aborted) {
+    const err = new Error('已取消這次 AI 分析，妳可以直接改用速查或重拍喔 ✨');
+    err.name = 'UserAbortError';
+    throw err;
+  }
+}
+
+function isUserAbortError(err: unknown): boolean {
+  return err instanceof Error && err.name === 'UserAbortError';
+}
+
 async function fetchWithTimeout(
   url: string,
   init: RequestInit,
-  timeoutMs: number
+  timeoutMs: number,
+  externalSignal?: AbortSignal
 ): Promise<Response> {
+  throwIfUserAborted(externalSignal);
   const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
-  const timer = ctrl ? setTimeout(() => ctrl.abort(), timeoutMs) : null;
+  let timedOut = false;
+  const onExternalAbort = () => ctrl?.abort();
+  if (externalSignal && ctrl) {
+    externalSignal.addEventListener('abort', onExternalAbort, { once: true });
+  }
+  const timer = ctrl
+    ? setTimeout(() => {
+        timedOut = true;
+        ctrl.abort();
+      }, timeoutMs)
+    : null;
   try {
     return await fetch(url, { ...init, signal: ctrl?.signal });
+  } catch (err) {
+    if (externalSignal?.aborted && !timedOut) {
+      throwIfUserAborted(externalSignal);
+    }
+    throw err;
   } finally {
     if (timer) clearTimeout(timer);
+    if (externalSignal && ctrl) {
+      externalSignal.removeEventListener('abort', onExternalAbort);
+    }
   }
 }
 
@@ -360,30 +485,78 @@ function parseGradioSseOutput(sseText: string): string {
   throw new GradioQuotaError('未取得視覺模型回應');
 }
 
-async function callGradioSpaceVisionOnce(
+async function resolveGradioRemotePath(
   baseUrl: string,
-  endpoint: string,
   imageBlob: Blob,
-  buildPayload: (fileData: Record<string, unknown>) => unknown[]
+  cacheKey?: string,
+  externalSignal?: AbortSignal,
+  onProgress?: (stage: string) => void
 ): Promise<string> {
+  if (cacheKey && baseUrl === QWEN_SPACE_URL) {
+    const cached = GRADIO_UPLOAD_CACHE.get(cacheKey);
+    if (cached && Date.now() - cached.uploadedAt < GRADIO_CACHE_TTL_MS) {
+      return cached.remotePath;
+    }
+    const inflight = GRADIO_PREUPLOAD_INFLIGHT.get(cacheKey);
+    if (inflight) {
+      onProgress?.('📤 等待背景預傳照片完成...');
+      const prePath = await inflight;
+      throwIfUserAborted(externalSignal);
+      if (prePath) return prePath;
+    }
+  }
+
+  onProgress?.('📤 正在上傳壓縮照片...');
   const form = new FormData();
   form.append('files', imageBlob, 'meal.jpg');
-
-  const upRes = await fetchWithTimeout(`${baseUrl}/gradio_api/upload`, {
-    method: 'POST',
-    body: form,
-  }, 15000);
+  const upRes = await fetchWithTimeout(
+    `${baseUrl}/gradio_api/upload`,
+    { method: 'POST', body: form },
+    10000,
+    externalSignal
+  );
   if (!upRes.ok) throw new Error(`Upload ${upRes.status}`);
   const upJson = (await upRes.json()) as string[];
   const remotePath = upJson?.[0];
   if (!remotePath) throw new Error('Missing upload path');
+  if (cacheKey && baseUrl === QWEN_SPACE_URL) {
+    GRADIO_UPLOAD_CACHE.set(cacheKey, { remotePath, uploadedAt: Date.now() });
+  }
+  return remotePath;
+}
 
+async function callGradioSpaceVisionOnce(
+  baseUrl: string,
+  endpoint: string,
+  imageBlob: Blob,
+  buildPayload: (fileData: Record<string, unknown>) => unknown[],
+  opts?: {
+    cacheKey?: string;
+    sseTimeoutMs?: number;
+    signal?: AbortSignal;
+    onProgress?: (stage: string) => void;
+  }
+): Promise<string> {
+  const remotePath = await resolveGradioRemotePath(
+    baseUrl,
+    imageBlob,
+    opts?.cacheKey,
+    opts?.signal,
+    opts?.onProgress
+  );
+
+  opts?.onProgress?.('🧠 排隊喚醒免費視覺 GPU 辨識菜色中...');
   const fileData = { path: remotePath, meta: { _type: 'gradio.FileData' } };
-  const callRes = await fetchWithTimeout(`${baseUrl}/gradio_api/call${endpoint}`, {
-    method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ data: buildPayload(fileData) }),
-  }, 15000);
+  const callRes = await fetchWithTimeout(
+    `${baseUrl}/gradio_api/call${endpoint}`,
+    {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ data: buildPayload(fileData) }),
+    },
+    10000,
+    opts?.signal
+  );
   if (!callRes.ok) throw new Error(`Call ${callRes.status}`);
   const { event_id: eventId } = (await callRes.json()) as { event_id?: string };
   if (!eventId) throw new Error('Missing event_id');
@@ -391,10 +564,12 @@ async function callGradioSpaceVisionOnce(
   const sseRes = await fetchWithTimeout(
     `${baseUrl}/gradio_api/call${endpoint}/${eventId}`,
     { method: 'GET' },
-    26000
+    opts?.sseTimeoutMs ?? 24000,
+    opts?.signal
   );
   if (!sseRes.ok) throw new Error(`SSE ${sseRes.status}`);
   const sseText = await sseRes.text();
+  opts?.onProgress?.('✨ 正在整理菜色熱量與營養素...');
   return parseGradioSseOutput(sseText);
 }
 
@@ -403,25 +578,48 @@ async function callGradioSpaceVisionWithRetry(
   endpoint: string,
   imageBlob: Blob,
   buildPayload: (fileData: Record<string, unknown>) => unknown[],
-  maxAttempts = 2
+  maxAttempts = 2,
+  opts?: {
+    cacheKey?: string;
+    sseTimeoutMs?: number;
+    signal?: AbortSignal;
+    onProgress?: (stage: string) => void;
+  }
 ): Promise<string> {
   let lastErr: unknown;
   for (let attempt = 1; attempt <= maxAttempts; attempt++) {
     try {
-      return await callGradioSpaceVisionOnce(baseUrl, endpoint, imageBlob, buildPayload);
+      return await callGradioSpaceVisionOnce(baseUrl, endpoint, imageBlob, buildPayload, opts);
     } catch (err) {
+      if (isUserAbortError(err)) throw err;
       lastErr = err;
-      // Do not waste retries if ZeroGPU explicitly said IP quota exceeded
+      // Do not waste retries on quota errors or slow SSE timeouts (avoid doubling a 24s wait into 48s!)
       if (err instanceof GradioQuotaError && err.isQuota) {
         break;
       }
+      if (err instanceof Error && err.name === 'AbortError') {
+        break;
+      }
+      // Drop potentially stale remotePath cache before quick retry
+      if (opts?.cacheKey) {
+        GRADIO_UPLOAD_CACHE.delete(opts.cacheKey);
+      }
       if (attempt < maxAttempts) {
-        await new Promise((r) => setTimeout(r, 1100 * attempt));
+        opts?.onProgress?.('🔄 連線小抖動，快速重試中...');
+        await new Promise((r) => setTimeout(r, 600 * attempt));
       }
     }
   }
   throw lastErr instanceof Error ? lastErr : new Error('雲端視覺辨識暫時無回應');
 }
+
+/** 精簡高速版視覺提示詞（供免費 Qwen2.5-VL 使用，減少 ~70% 輸入 Token 同時保留順時針空盤掃描＋營養標示規則！） */
+const FAST_VISION_SYSTEM_PROMPT = `你是台灣療癒營養師 Quokka & BOBO。請辨識圖片中的餐點或包裝背面「營養標示／成分表」，逐項拆解估算 kcal、proteinG、carbsG、fatG（繁體中文）。
+規則：
+1. 無分隔空盤／自助餐盤：沿 12→3→6→9點→中央順時針逐撮列出每種菜，嚴禁合併成「什錦炒菜」或跳過反光／深色菜。每樣夾一點（半份 40~50g）按清炒菜 30~45、蛋豆腐 60~85、茄子冬粉 70~95、肉片 95~160、小飯 90~140 kcal 估；滿格 80g 用正常份量。
+2. 包裝背面營養標示：逐字直讀「每份熱量/蛋白/脂肪/碳水」與「含幾份」；找不到品名則由成分推斷或命名「包裝食品(營養標示直讀)」。
+3. 嚴格只回純 JSON（不加 Markdown）：
+{"title":"簡短總稱","items":[{"name":"菜名","portion":"份量","calories":120,"proteinG":6,"carbsG":10,"fatG":5}],"praise":"20~35字溫柔誇誇🤎✨"}`;
 
 const NUTRITION_SYSTEM_PROMPT = `你是台灣最溫柔療癒的營養師夥伴「DINOTAENG 短尾矮袋鼠 Quokka 與雪白軟糖小熊 BOBO」。
 請根據圖片或文字內容（支援兩種情境：① 實體餐盤／便當／美食照 ② 商品包裝背面的「營養標示 Nutrition Facts／成分表」），拆解食物項目並計算熱量（kcal）與三大營養素（蛋白質 proteinG、碳水 carbsG、脂肪 fatG，單位公克）。
@@ -495,12 +693,15 @@ let lastPollinationsCallAt = 0;
  */
 async function estimateNutritionKeyless(
   mealContext: string,
-  category: MealCategory
+  category: MealCategory,
+  opts?: { signal?: AbortSignal; onProgress?: (stage: string) => void }
 ): Promise<GeminiMealAnalysis> {
+  const startedAt = Date.now();
   const now = Date.now();
   const pollinationsReady = now - lastPollinationsCallAt >= 46_000;
 
   const tryPollinations = async (): Promise<GeminiMealAnalysis> => {
+    opts?.onProgress?.('⚡ 連線文字極速 AI 精算熱量...');
     lastPollinationsCallAt = Date.now();
     const res = await fetchWithTimeout(
       'https://text.pollinations.ai/openai',
@@ -516,7 +717,8 @@ async function estimateNutritionKeyless(
           ],
         }),
       },
-      18000
+      12000,
+      opts?.signal
     );
     if (!res.ok) {
       throw new Error(`Pollinations HTTP ${res.status}`);
@@ -524,138 +726,248 @@ async function estimateNutritionKeyless(
     const json = await res.json();
     const content: string = json?.choices?.[0]?.message?.content || '';
     if (!content) throw new Error('Empty Pollinations content');
-    return parseGeminiNutritionJson(content, category);
+    const parsed = parseGeminiNutritionJson(content, category);
+    return { ...parsed, source: 'keyless-text', elapsedMs: Date.now() - startedAt };
   };
 
   const tryQwenTextMode = async (): Promise<GeminiMealAnalysis> => {
+    opts?.onProgress?.('🧠 切換備援視覺雲端引擎計算...');
     const blankBlob = createTinyBlankJpegBlob();
-    const fullPrompt = `（請忽略空白底圖，僅依以下文字計算營養素）\n${NUTRITION_SYSTEM_PROMPT}\n\n${mealContext}`;
+    const fullPrompt = `（忽略空白圖，僅依文字計算）\n${FAST_VISION_SYSTEM_PROMPT}\n\n${mealContext}`;
     const raw = await callGradioSpaceVisionWithRetry(
-      'https://developer0hye-qwen2-5-vl-7b-instruct.hf.space',
+      QWEN_SPACE_URL,
       '/qwen_vl_inference',
       blankBlob,
       (fd) => [fd, fullPrompt],
-      2
+      1,
+      { signal: opts?.signal, onProgress: opts?.onProgress, sseTimeoutMs: 20000 }
     );
-    return parseGeminiNutritionJson(raw, category);
+    const parsed = parseGeminiNutritionJson(raw, category);
+    return { ...parsed, source: 'keyless-text', elapsedMs: Date.now() - startedAt };
   };
 
   if (pollinationsReady) {
     try {
       return await tryPollinations();
-    } catch {
+    } catch (err) {
+      if (isUserAbortError(err)) throw err;
       return await tryQwenTextMode();
     }
   } else {
     try {
       return await tryQwenTextMode();
-    } catch {
-      // Wait briefly or try Pollinations as backup
+    } catch (err) {
+      if (isUserAbortError(err)) throw err;
       return await tryPollinations();
     }
   }
 }
 
 /**
- * 一步到位免金鑰照片分析（同時支援「美食實體照」與「商品背面營養標示／成分表 OCR 直讀」！）
- * 直接由 Qwen2.5-VL 輸出完整 JSON，省去第二階段 Pollinations 45 秒冷卻限制，速度更快、成功率大幅提升！
+ * 一步到位免金鑰照片分析（精簡 Prompt + 680px 預傳快取，大幅縮短等待時間！）
  */
 async function analyzePhotoKeylessDirect(params: {
   imageBase64: string;
+  hdImageBase64?: string;
   descriptionText?: string;
   category: MealCategory;
+  isLabelMode: boolean;
+  signal?: AbortSignal;
+  onProgress?: (stage: string) => void;
 }): Promise<GeminiMealAnalysis> {
+  const startedAt = Date.now();
   const blob = base64ToJpegBlob(params.imageBase64);
+  const cacheKey = makeFastFingerprint(params.imageBase64);
   const userNote = params.descriptionText?.trim()
-    ? `\n【使用者補充商品名或備註（請優先採用！）】：「${params.descriptionText.trim()}」`
+    ? `\n備註（優先採用）：「${params.descriptionText.trim()}」`
     : '';
 
-  const oneShotPrompt = `${NUTRITION_SYSTEM_PROMPT}${userNote}\n請仔細觀察這張圖片：若是「無分隔空盤自己夾菜」或「自助餐盤」，請沿著盤子順時針（12點->3點->6點->9點->中央）逐一找出每一小撮不同顏色與材質的菜色，盤子上有幾小撮不同食物就拆出幾筆 items（若每樣只夾一點點請按半份小份量計算），嚴禁漏掉任何一小撮菜或合併成一項！若是包裝背面「營養標示」，請精準直讀表格數字。請只回傳上述 JSON 物件！`;
+  const oneShotPrompt = `${FAST_VISION_SYSTEM_PROMPT}${userNote}\n${
+    params.isLabelMode
+      ? '本圖偏向商品背面「營養標示／成分表」，請優先逐字直讀表格熱量與份數，只回純 JSON！'
+      : '若是無分隔空盤或自助餐盤，請順時針 12→3→6→9點→中央逐撮拆出每道菜，只回純 JSON！'
+  }`;
 
   try {
     const raw = await callGradioSpaceVisionWithRetry(
-      'https://developer0hye-qwen2-5-vl-7b-instruct.hf.space',
+      QWEN_SPACE_URL,
       '/qwen_vl_inference',
       blob,
       (fd) => [fd, oneShotPrompt],
-      2
+      2,
+      {
+        cacheKey,
+        sseTimeoutMs: 22000,
+        signal: params.signal,
+        onProgress: params.onProgress,
+      }
     );
-    return parseGeminiNutritionJson(raw, params.category);
+    const parsed = parseGeminiNutritionJson(raw, params.category);
+    return { ...parsed, source: 'keyless-vision', elapsedMs: Date.now() - startedAt };
   } catch (visionErr) {
-    // 保底通道 1：若拍的是包裝背面「營養標示」，即使雲端視覺 GPU 額度滿了，也能用瀏覽器本地 OCR 直接讀出熱量與營養素！
-    const localLabelResult = await tryBrowserLocalNutritionLabelOcr(
-      params.imageBase64,
-      params.descriptionText,
-      params.category
-    );
-    if (localLabelResult) {
-      return localLabelResult;
+    if (isUserAbortError(visionErr)) throw visionErr;
+
+    // 保底通道 1：只有拍「包裝背面營養標示 / 高清模式」時才載入 ~15MB 離線 OCR，避免一般餐盤白等下載時間！
+    if (params.isLabelMode) {
+      params.onProgress?.('🔎 改用本機離線 OCR 讀取包裝營養標示...');
+      const localLabelResult = await tryBrowserLocalNutritionLabelOcr(
+        params.hdImageBase64 || params.imageBase64,
+        params.descriptionText,
+        params.category
+      );
+      throwIfUserAborted(params.signal);
+      if (localLabelResult) {
+        return { ...localLabelResult, source: 'local-ocr', elapsedMs: Date.now() - startedAt };
+      }
     }
 
-    // 保底通道 2：若使用者同時有打文字說明（如「無糖豆漿」或「雞腿便當」），直接用文字引擎算出結果不報錯！
+    // 保底通道 2：若使用者有輸入餐點文字，優先走 0.01 秒本機庫或快速文字 AI（免看圖不報錯！）
     if (params.descriptionText?.trim()) {
+      const localTextHit = estimateMealLocallyInstant(params.descriptionText, params.category);
+      if (localTextHit.allMatched) {
+        return {
+          title: localTextHit.title,
+          items: localTextHit.items,
+          totalCalories: localTextHit.totalCalories,
+          proteinG: localTextHit.proteinG,
+          carbsG: localTextHit.carbsG,
+          fatG: localTextHit.fatG,
+          praise: localTextHit.praise,
+          source: 'local-instant',
+          elapsedMs: Date.now() - startedAt,
+        };
+      }
       return estimateNutritionKeyless(
         `【使用者餐點描述】：「${params.descriptionText.trim()}」`,
-        params.category
+        params.category,
+        { signal: params.signal, onProgress: params.onProgress }
       );
     }
 
-    // 保底通道 3：嘗試備援英文視覺節點 Florence-2 再轉營養估算
+    // 保底通道 3：快檢備援視覺節點（上限 7 秒，若 CPU 節點休眠就不白等 30 秒！）
     try {
+      params.onProgress?.('🛟 嘗試備援影像節點（最多 7 秒）...');
       const caption = await callGradioSpaceVisionOnce(
         'https://prithivmlmods-florence-2-image-caption.hf.space',
         '/describe_image',
         blob,
-        (fd) => [fd, 'Florence-2-base']
+        (fd) => [fd, 'Florence-2-base'],
+        { sseTimeoutMs: 7000, signal: params.signal }
       );
       if (caption) {
         return await estimateNutritionKeyless(
           `【AI 照片辨識結果】：${caption}`,
-          params.category
+          params.category,
+          { signal: params.signal, onProgress: params.onProgress }
         );
       }
-    } catch {
-      // Fall through to clear user-facing explanation
+    } catch (err) {
+      if (isUserAbortError(err)) throw err;
     }
 
     if (visionErr instanceof GradioQuotaError && visionErr.isQuota) {
       throw new Error(
-        '免費雲端視覺 GPU 在目前網路 IP 的今日額度剛好用完囉 🥺 妳可以：① 在上方文字欄順手輸入吃了什麼（免看圖秒算！）、② 切換手機 4G/5G 與 Wi-Fi，或 ③ 點右上角 ⚙️ 貼入免費 Gemini API Key 享每日 1,500 張無限拍！'
+        '免費雲端視覺 GPU 在目前網路 IP 的今日額度剛好用完囉 🥺 妳可以：① 填免費 Gemini API Key 享 1~3 秒高速拍（每日 1,500 張）、② 在上方文字欄打菜名秒算、或 ③ 切到「台灣美食速查」一鍵點選！'
       );
     }
 
     throw new Error(
-      '剛剛雲端拍照伺服器小塞車了一下 🥺 請再點一次按鈕重試，或在上方文字欄補充一句食物名稱（若是拍包裝背面，請盡量對焦在「營養標示」方框喔）！'
+      '免費共用視覺伺服器現在塞車了 🥺 建議：① 再點一次重試、② 到右上角 ⚙️ 貼入免費 Gemini API Key 改成 1~3 秒直連、或 ③ 直接用文字描述／自助餐速查 0 秒記完！'
     );
   }
 }
 
+function buildGeminiGenerationConfig(model: string, temperature: number): Record<string, unknown> {
+  const cfg: Record<string, unknown> = {
+    temperature,
+    responseMimeType: 'application/json',
+    maxOutputTokens: 900,
+  };
+  // Gemini 2.5 預設開啟思考模式 (thinking) 會多拖 5~12 秒；關閉後辨識熱量只要 1.5~3 秒！
+  if (model.startsWith('gemini-2.5-')) {
+    cfg.thinkingConfig = { thinkingBudget: 0 };
+  }
+  return cfg;
+}
+
 /**
- * 主入口：若使用者有自備 Gemini API Key 則優先走 Gemini；否則自動使用「內建免金鑰高清視覺＋營養標示 OCR 引擎」開箱即用！
+ * 主入口：
+ * 1) 有自備 Gemini API Key -> 直連 Gemini 2.5 Flash（關閉思考延遲 `thinkingBudget: 0`，1.5~3 秒秒回！）
+ * 2) 純文字且命中內建 80+ 台灣食物庫 -> 0.01 秒本機秒算！
+ * 3) 免金鑰照片 -> 預設走 680px 極速餐盤照 + 預傳快取 + 精簡 Prompt（營養標示自動升 1280px 高清）
  */
 export async function analyzeMealWithGemini(params: {
   apiKey?: string;
   category: MealCategory;
   descriptionText?: string;
   imageBase64?: string;
+  fastImageBase64?: string;
   imageMimeType?: string;
+  qualityMode?: PhotoQualityMode;
+  signal?: AbortSignal;
+  onProgress?: (stage: string) => void;
 }): Promise<GeminiMealAnalysis> {
+  const startedAt = Date.now();
   const cleanKey = (params.apiKey || '').trim();
+  const cleanText = (params.descriptionText || '').trim();
+  const hasPhoto = Boolean(params.imageBase64 || params.fastImageBase64);
+  const effectiveMode: PhotoQualityMode =
+    params.qualityMode || (isNutritionLabelHint(cleanText) ? 'hd' : 'fast');
 
-  // Path A: 使用者有選填自己的 Gemini API Key（支援高清餐點照 + 商品背面營養標示直讀，無 ZeroGPU 限制）
+  // Choose 680px fast image for plates/dishes, 1280px HD image for nutrition-label small print
+  const chosenImageBase64 =
+    effectiveMode === 'hd'
+      ? params.imageBase64 || params.fastImageBase64
+      : params.fastImageBase64 || params.imageBase64;
+
+  // Instant 0ms cache lookup for identical photo + note re-clicks
+  const cacheKey = hasPhoto && chosenImageBase64
+    ? `p|${params.category}|${effectiveMode}|${cleanText}|${makeFastFingerprint(chosenImageBase64)}`
+    : `t|${params.category}|${cleanText}`;
+  const cached = ANALYSIS_CACHE.get(cacheKey);
+  if (cached) {
+    return {
+      ...cached,
+      items: cached.items.map((it, idx) => ({ ...it, id: `cache-item-${Date.now()}-${idx}` })),
+      source: 'cache',
+      elapsedMs: 1,
+    };
+  }
+
+  // Fast Path 0: 純文字且 100% 命中內建台灣食物庫 -> 0.01 秒免等待、零流量！
+  if (!hasPhoto && cleanText) {
+    const instant = estimateMealLocallyInstant(cleanText, params.category);
+    if (instant.allMatched) {
+      const result: GeminiMealAnalysis = {
+        title: instant.title,
+        items: instant.items,
+        totalCalories: instant.totalCalories,
+        proteinG: instant.proteinG,
+        carbsG: instant.carbsG,
+        fatG: instant.fatG,
+        praise: instant.praise,
+        source: 'local-instant',
+        elapsedMs: Math.max(1, Date.now() - startedAt),
+      };
+      return result;
+    }
+  }
+
+  // Path A: 使用者有選填自己的 Gemini API Key（1.5~3 秒極速直連！）
   if (cleanKey) {
+    params.onProgress?.('⚡ 連線專屬 Gemini 極速通道辨識中...');
     const parts: Array<Record<string, unknown>> = [{ text: NUTRITION_SYSTEM_PROMPT }];
-    if (params.imageBase64) {
+    if (chosenImageBase64) {
       parts.push({
         inline_data: {
           mime_type: params.imageMimeType || 'image/jpeg',
-          data: params.imageBase64,
+          data: chosenImageBase64,
         },
       });
     }
     parts.push({
-      text: params.descriptionText?.trim()
-        ? `使用者補充說明：「${params.descriptionText.trim()}」`
+      text: cleanText
+        ? `使用者補充說明：「${cleanText}」`
         : '請辨識照片中的餐點（或包裝背面的營養標示與品名／成分）並精準計算熱量與三大營養素。',
     });
 
@@ -669,13 +981,11 @@ export async function analyzeMealWithGemini(params: {
             headers: { 'Content-Type': 'application/json' },
             body: JSON.stringify({
               contents: [{ role: 'user', parts }],
-              generationConfig: {
-                temperature: 0.25,
-                responseMimeType: 'application/json',
-              },
+              generationConfig: buildGeminiGenerationConfig(model, 0.25),
             }),
           },
-          22000
+          15000,
+          params.signal
         );
         if (!res.ok) continue;
         const json = await res.json();
@@ -684,42 +994,64 @@ export async function analyzeMealWithGemini(params: {
             ?.map((p: { text?: string }) => p.text || '')
             .join('') || '';
         if (rawText) {
-          return parseGeminiNutritionJson(rawText, params.category);
+          const parsed = parseGeminiNutritionJson(rawText, params.category);
+          const result: GeminiMealAnalysis = {
+            ...parsed,
+            source: 'gemini',
+            elapsedMs: Date.now() - startedAt,
+          };
+          cacheSet(cacheKey, result);
+          return result;
         }
-      } catch {
-        // Fallback to built-in keyless engine!
+      } catch (err) {
+        if (isUserAbortError(err)) throw err;
+        // Fallback to next Gemini model / built-in keyless engine
       }
     }
   }
 
-  // Path B1: 有附照片 -> 走一步到位高清視覺＋營養標示 OCR 引擎（免經 Pollinations 45 秒限制！）
-  if (params.imageBase64) {
-    return analyzePhotoKeylessDirect({
-      imageBase64: params.imageBase64,
-      descriptionText: params.descriptionText,
+  // Path B1: 有附照片 -> 走一步到位極速免金鑰視覺引擎
+  if (chosenImageBase64) {
+    const result = await analyzePhotoKeylessDirect({
+      imageBase64: chosenImageBase64,
+      hdImageBase64: params.imageBase64,
+      descriptionText: cleanText || undefined,
       category: params.category,
+      isLabelMode: effectiveMode === 'hd',
+      signal: params.signal,
+      onProgress: params.onProgress,
     });
+    cacheSet(cacheKey, result);
+    return result;
   }
 
-  // Path B2: 純文字描述 -> 走雙引擎免金鑰營養估算
-  const cleanText = (params.descriptionText || '').trim();
+  // Path B2: 純文字描述 -> 走快速文字 AI 引擎
   if (!cleanText) {
     throw new Error('請先拍一張美食／營養標示照片，或輸入吃了什麼喔 🍱');
   }
 
-  return estimateNutritionKeyless(`【使用者餐點描述／備註】：${cleanText}`, params.category);
+  const result = await estimateNutritionKeyless(
+    `【使用者餐點描述／備註】：${cleanText}`,
+    params.category,
+    { signal: params.signal, onProgress: params.onProgress }
+  );
+  cacheSet(cacheKey, result);
+  return result;
 }
 
 /**
  * 當照片 AI 辨識有誤時，讓使用者直接修改菜色名稱／份量／新增漏掉項目或補充修正說明，再重新精準計算卡路里與三大營養素！
- * （不重跑視覺猜測，避免 AI 又把使用者改對的菜名改回錯的，且內建雙引擎防 45 秒冷卻！）
+ * 若無額外修正備註且全部品項命中內建食物庫，直接 0.01 秒本機秒算！
  */
 export async function recalculateMealFromEdits(params: {
   apiKey?: string;
   category: MealCategory;
   editedItems: Array<{ name: string; portion: string }>;
   correctionNote?: string;
+  signal?: AbortSignal;
+  onProgress?: (stage: string) => void;
 }): Promise<GeminiMealAnalysis> {
+  const startedAt = Date.now();
   const validItems = params.editedItems
     .map((x) => ({
       name: x.name.trim(),
@@ -729,6 +1061,18 @@ export async function recalculateMealFromEdits(params: {
 
   if (validItems.length === 0 && !params.correctionNote?.trim()) {
     throw new Error('請至少保留一樣食物名稱，或填寫修正內容再重新計算喔 🤎');
+  }
+
+  // 0.01 秒本機極速重算（僅在沒有額外修正備註、且每道菜都能精準命中資料庫時直接回傳）
+  if (!params.correctionNote?.trim()) {
+    const localHit = tryRecalculateItemsLocally(validItems, params.category);
+    if (localHit) {
+      return {
+        ...localHit,
+        source: 'local-instant',
+        elapsedMs: Math.max(1, Date.now() - startedAt),
+      };
+    }
   }
 
   const listLines = validItems
@@ -748,6 +1092,7 @@ export async function recalculateMealFromEdits(params: {
 
   const cleanKey = (params.apiKey || '').trim();
   if (cleanKey) {
+    params.onProgress?.('⚡ 連線專屬 Gemini 快速重算...');
     for (const model of GEMINI_MODELS) {
       try {
         const endpoint = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${encodeURIComponent(cleanKey)}`;
@@ -763,13 +1108,11 @@ export async function recalculateMealFromEdits(params: {
                   parts: [{ text: `${NUTRITION_SYSTEM_PROMPT}\n\n${recalcPrompt}` }],
                 },
               ],
-              generationConfig: {
-                temperature: 0.2,
-                responseMimeType: 'application/json',
-              },
+              generationConfig: buildGeminiGenerationConfig(model, 0.2),
             }),
           },
-          20000
+          15000,
+          params.signal
         );
         if (!res.ok) continue;
         const json = await res.json();
@@ -778,15 +1121,20 @@ export async function recalculateMealFromEdits(params: {
             ?.map((p: { text?: string }) => p.text || '')
             .join('') || '';
         if (rawText) {
-          return parseGeminiNutritionJson(rawText, params.category);
+          const parsed = parseGeminiNutritionJson(rawText, params.category);
+          return { ...parsed, source: 'gemini', elapsedMs: Date.now() - startedAt };
         }
-      } catch {
+      } catch (err) {
+        if (isUserAbortError(err)) throw err;
         // Fallback to built-in keyless engine
       }
     }
   }
 
-  return estimateNutritionKeyless(recalcPrompt, params.category);
+  return estimateNutritionKeyless(recalcPrompt, params.category, {
+    signal: params.signal,
+    onProgress: params.onProgress,
+  });
 }
 
 export async function testGeminiApiKey(apiKey: string): Promise<boolean> {

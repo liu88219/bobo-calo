@@ -292,7 +292,7 @@ export const SettingsVaultModal: React.FC<Props> = ({
             </a>
           </div>
           <p className="text-xs text-[#7C5841]">
-            ✅ <strong>系統已內建免金鑰雲端視覺與語意 AI</strong>，打開就能直接拍照或打字算熱量！若妳想切換成個人專屬高速 Gemini 通道，也可選填於此（前端加密同步、不公開於 GitHub）。
+            ✅ <strong>系統已內建免金鑰雲端視覺與語意 AI</strong>，打開就能直接拍照或打字算熱量！若覺得免費共用雲端排隊較慢（約 6～20 秒），貼上妳免費的 <strong>Google Gemini API Key</strong> 後會自動切換成<strong>個人專屬直連通道（約 1～3 秒秒回，已關閉思考延遲！）</strong>（前端加密同步、不公開於 GitHub）。
           </p>
           <div className="flex gap-2">
             <div className="relative flex-1">

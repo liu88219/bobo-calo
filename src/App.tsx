@@ -1402,6 +1402,7 @@ export const App: React.FC = () => {
           dateKey={selectedDate}
           geminiApiKey={vault.geminiApiKey}
           initialMeal={editingMeal}
+          recentMeals={vault.meals}
           onSaveMeal={handleSaveMeal}
           onOpenSettingsForApiKey={() => {
             setEditingMeal(null);

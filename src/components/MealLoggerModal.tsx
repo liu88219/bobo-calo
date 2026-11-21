@@ -12,6 +12,9 @@ import {
   Loader2,
   RefreshCw,
   PencilLine,
+  Zap,
+  History,
+  KeyRound,
 } from 'lucide-react';
 import {
   MealCategory,
@@ -30,14 +33,20 @@ import {
   analyzeMealWithGemini,
   recalculateMealFromEdits,
   processMealPhotoFile,
+  preuploadMealPhotoForFastScan,
+  isNutritionLabelHint,
   ProcessedMealImages,
+  PhotoQualityMode,
+  AnalysisSource,
 } from '../services/geminiService';
+import { estimateMealLocallyInstant } from '../services/localFoodEstimator';
 import { getLocalHiResPhoto, saveLocalHiResPhoto } from '../services/cloudSync';
 
 interface Props {
   dateKey?: string;
   geminiApiKey: string;
   initialMeal?: MealLog | null;
+  recentMeals?: MealLog[];
   onSaveMeal: (meal: MealLog, launchExerciseAfter: boolean) => void;
   onOpenSettingsForApiKey?: () => void;
   onClose: () => void;
@@ -97,7 +106,9 @@ export const MealLoggerModal: React.FC<Props> = ({
   dateKey,
   geminiApiKey,
   initialMeal,
+  recentMeals = [],
   onSaveMeal,
+  onOpenSettingsForApiKey,
   onClose,
 }) => {
   const isEditingExisting = Boolean(initialMeal);
@@ -111,10 +122,16 @@ export const MealLoggerModal: React.FC<Props> = ({
     () => initialMeal?.photoThumb || null
   );
   const [descriptionText, setDescriptionText] = useState(() => initialMeal?.note || '');
+  const [photoQualityMode, setPhotoQualityMode] = useState<PhotoQualityMode>('fast');
+  const [manualQualityPinned, setManualQualityPinned] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
+  const [analysisStage, setAnalysisStage] = useState('');
+  const [elapsedSec, setElapsedSec] = useState(0);
+  const [lastSpeedBadge, setLastSpeedBadge] = useState('');
   const [recalculating, setRecalculating] = useState(false);
   const [errorMsg, setErrorMsg] = useState('');
   const [recalcSuccessMsg, setRecalcSuccessMsg] = useState('');
+  const analyzeAbortRef = useRef<AbortController | null>(null);
 
   // Editable draft result
   const [hasAnalyzed, setHasAnalyzed] = useState(() => Boolean(initialMeal));
@@ -138,6 +155,80 @@ export const MealLoggerModal: React.FC<Props> = ({
   const cameraInputRef = useRef<HTMLInputElement | null>(null);
   const galleryInputRef = useRef<HTMLInputElement | null>(null);
 
+  // Auto-switch quality mode to HD when user hints a nutrition facts label (unless manually pinned)
+  useEffect(() => {
+    if (manualQualityPinned) return;
+    setPhotoQualityMode(isNutritionLabelHint(descriptionText) ? 'hd' : 'fast');
+  }, [descriptionText, manualQualityPinned]);
+
+  // Real-time elapsed timer while waiting for AI scan
+  useEffect(() => {
+    if (!analyzing) {
+      setElapsedSec(0);
+      return;
+    }
+    const start = Date.now();
+    const timer = window.setInterval(() => {
+      setElapsedSec(Math.round(((Date.now() - start) / 1000) * 10) / 10);
+    }, 200);
+    return () => window.clearInterval(timer);
+  }, [analyzing]);
+
+  // Cancel any in-flight scan when modal unmounts
+  useEffect(() => {
+    return () => {
+      analyzeAbortRef.current?.abort();
+    };
+  }, []);
+
+  // Deduplicated recent unique meals for 1-tap instant replay (0 sec wait!)
+  const quickRecentMeals = useMemo(() => {
+    if (isEditingExisting || recentMeals.length === 0) return [];
+    const seen = new Set<string>();
+    const out: MealLog[] = [];
+    const sorted = [...recentMeals].sort((a, b) => (b.createdAt || 0) - (a.createdAt || 0));
+    for (const m of sorted) {
+      const key = m.title.trim().toLowerCase();
+      if (!key || seen.has(key) || !m.items || m.items.length === 0) continue;
+      seen.add(key);
+      out.push(m);
+      if (out.length >= 6) break;
+    }
+    return out;
+  }, [recentMeals, isEditingExisting]);
+
+  // Live 0.01s instant offline match preview whenever user types dishes in the note box
+  const instantTextMatch = useMemo(() => {
+    if (!descriptionText.trim()) return null;
+    const est = estimateMealLocallyInstant(descriptionText, category);
+    return est.matchedCount > 0 ? est : null;
+  }, [descriptionText, category]);
+
+  const formatSpeedBadge = (source?: AnalysisSource, elapsedMs?: number): string => {
+    const secStr =
+      typeof elapsedMs === 'number'
+        ? elapsedMs < 100
+          ? '0.01 秒'
+          : `${(elapsedMs / 1000).toFixed(1)} 秒`
+        : '';
+    switch (source) {
+      case 'local-instant':
+        return `⚡ 本機秒算（${secStr || '0.01 秒'} · 免排隊）`;
+      case 'cache':
+        return '♻️ 命中快取秒讀（0 秒）';
+      case 'gemini':
+        return `⚡ 專屬 Gemini 極速（${secStr}）`;
+      case 'local-ocr':
+        return `🔎 本機離線 OCR 直讀（${secStr}）`;
+      case 'keyless-text':
+        return `☁️ 雲端文字 AI（${secStr}）`;
+      case 'keyless-vision':
+        return `☁️ 免費視覺雲端（${secStr}）`;
+      default:
+        return '';
+    }
+  };
+
   useEffect(() => {
     let active = true;
     if (initialMeal?.hasLocalHiResPhoto) {
@@ -159,6 +250,10 @@ export const MealLoggerModal: React.FC<Props> = ({
       const processed = await processMealPhotoFile(file);
       setProcessedImg(processed);
       setExistingPhotoPreview(null);
+      // 選好照片就靜默在背景預先上傳 680px 壓縮圖，按下分析時可少等 1~2.5 秒！
+      if (!geminiApiKey.trim() && processed.fastApiBase64) {
+        preuploadMealPhotoForFastScan(processed.fastApiBase64);
+      }
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : '照片處理失敗');
     }
@@ -169,27 +264,88 @@ export const MealLoggerModal: React.FC<Props> = ({
     setDescriptionText((prev) => (prev.includes(chip) ? prev : prev ? `${prev}、${chip}` : chip));
   };
 
+  const handleApplyInstantTextMatch = () => {
+    if (!instantTextMatch || instantTextMatch.items.length === 0) return;
+    setErrorMsg('');
+    setRecalcSuccessMsg('');
+    setMealTitle(instantTextMatch.title);
+    setItems(instantTextMatch.items);
+    setPraise(instantTextMatch.praise);
+    setHasAnalyzed(true);
+    setNeedsRecalc(false);
+    setCorrectionNote('');
+    setLastSpeedBadge(
+      instantTextMatch.allMatched
+        ? '⚡ 本機秒算完成（0.01 秒 · 免排隊）'
+        : `⚡ 本機秒算已帶入 ${instantTextMatch.matchedCount} 樣（0.01 秒，若有漏掉可用下方一鍵補菜！）`
+    );
+  };
+
+  const handleApplyRecentMeal = (meal: MealLog) => {
+    setErrorMsg('');
+    setRecalcSuccessMsg('');
+    setMealTitle(meal.title);
+    setItems(
+      meal.items.map((it, idx) => ({
+        ...it,
+        id: `copy-${Date.now()}-${idx}`,
+      }))
+    );
+    setPraise(meal.praise || pickMealPraise(category, meal.totalCalories));
+    setHasAnalyzed(true);
+    setNeedsRecalc(false);
+    setLastSpeedBadge('🔁 已 0 秒複製這餐（可直接微調單項菜色或按儲存！）');
+  };
+
+  const handleCancelAiAnalysis = (switchToPreset = false) => {
+    analyzeAbortRef.current?.abort();
+    analyzeAbortRef.current = null;
+    setAnalyzing(false);
+    setAnalysisStage('');
+    if (switchToPreset) {
+      setErrorMsg('');
+      setTab('preset');
+    }
+  };
+
   const handleRunAiAnalysis = async () => {
     setErrorMsg('');
     setRecalcSuccessMsg('');
+    setLastSpeedBadge('');
     const existingBase64 =
       existingPhotoPreview && existingPhotoPreview.startsWith('data:image/')
         ? existingPhotoPreview.slice(existingPhotoPreview.indexOf(',') + 1)
         : undefined;
-    const effectiveBase64 = processedImg?.apiBase64 || existingBase64;
-    if (!effectiveBase64 && !descriptionText.trim()) {
+    const effectiveHdBase64 = processedImg?.apiBase64 || existingBase64;
+    const effectiveFastBase64 = processedImg?.fastApiBase64;
+    if (!effectiveHdBase64 && !descriptionText.trim()) {
       setErrorMsg('請先拍一張美食照片，或輸入吃了什麼喔 🍱');
       return;
     }
 
+    analyzeAbortRef.current?.abort();
+    const ctrl = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    analyzeAbortRef.current = ctrl;
+
     setAnalyzing(true);
+    setAnalysisStage(
+      geminiApiKey.trim()
+        ? '⚡ 連線專屬 Gemini 極速通道...'
+        : effectiveHdBase64
+          ? '📤 正在準備壓縮餐盤照...'
+          : '⚡ 正在分析餐點熱量...'
+    );
     try {
       const res = await analyzeMealWithGemini({
         apiKey: geminiApiKey,
         category,
         descriptionText,
-        imageBase64: effectiveBase64,
+        imageBase64: effectiveHdBase64,
+        fastImageBase64: effectiveFastBase64,
         imageMimeType: processedImg?.mimeType || 'image/jpeg',
+        qualityMode: photoQualityMode,
+        signal: ctrl?.signal,
+        onProgress: (stage) => setAnalysisStage(stage),
       });
       setMealTitle(res.title);
       setItems(res.items);
@@ -197,10 +353,17 @@ export const MealLoggerModal: React.FC<Props> = ({
       setHasAnalyzed(true);
       setNeedsRecalc(false);
       setCorrectionNote('');
+      setLastSpeedBadge(formatSpeedBadge(res.source, res.elapsedMs));
     } catch (err) {
-      setErrorMsg(err instanceof Error ? err.message : 'AI 分析失敗，請稍後再試或改用速查庫');
+      if (err instanceof Error && err.name === 'UserAbortError') {
+        setErrorMsg('');
+      } else {
+        setErrorMsg(err instanceof Error ? err.message : 'AI 分析失敗，請稍後再試或改用速查庫');
+      }
     } finally {
+      analyzeAbortRef.current = null;
       setAnalyzing(false);
+      setAnalysisStage('');
     }
   };
 
@@ -230,7 +393,13 @@ export const MealLoggerModal: React.FC<Props> = ({
       setHasAnalyzed(true);
       setNeedsRecalc(false);
       setCorrectionNote('');
-      setRecalcSuccessMsg('✅ 已依照妳修正後的菜色與份量，重新算好卡路里與營養素囉！');
+      const badge = formatSpeedBadge(res.source, res.elapsedMs);
+      if (badge) setLastSpeedBadge(badge);
+      setRecalcSuccessMsg(
+        res.source === 'local-instant'
+          ? '⚡ 已 0.01 秒直接依內建台灣營養庫重算完成！'
+          : '✅ 已依照妳修正後的菜色與份量，重新算好卡路里與營養素囉！'
+      );
     } catch (err) {
       setErrorMsg(err instanceof Error ? err.message : '重新計算失敗，請再點一次試試喔');
     } finally {
@@ -464,6 +633,31 @@ export const MealLoggerModal: React.FC<Props> = ({
           })}
         </div>
 
+        {/* 0-sec Quick Replay Recent Meals Bar */}
+        {quickRecentMeals.length > 0 && (
+          <div className="space-y-1.5">
+            <div className="flex items-center gap-1 text-[11px] font-black text-[#6E6459]">
+              <History className="w-3.5 h-3.5 text-[#BA7E4D]" />
+              <span>🔁 最近吃過（點一下 0 秒帶入免重拍！）</span>
+            </div>
+            <div className="flex gap-1.5 overflow-x-auto pb-1">
+              {quickRecentMeals.map((m) => (
+                <button
+                  key={m.id}
+                  type="button"
+                  onClick={() => handleApplyRecentMeal(m)}
+                  className="px-2.5 py-1.5 rounded-xl bg-[#FFF6E2] hover:bg-[#F3C85F]/45 border border-[#E5C98B] text-[11px] font-bold text-[#422B1D] whitespace-nowrap shrink-0 transition active:scale-95"
+                  title={`點一下直接複製「${m.title}」的 ${m.items.length} 項菜色明細`}
+                >
+                  {MEAL_CATEGORY_META[m.category]?.emoji} {m.title.slice(0, 12)}
+                  {m.title.length > 12 ? '…' : ''}{' '}
+                  <span className="text-[#C83B32] font-black">{m.totalCalories}</span>
+                </button>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Mode Switch Tabs */}
         <div className="flex rounded-2xl bg-[#EFECE3] p-1">
           <button
@@ -488,6 +682,35 @@ export const MealLoggerModal: React.FC<Props> = ({
 
         {tab === 'ai' ? (
           <div className="space-y-3">
+            {/* Engine Speed Status Bar */}
+            {geminiApiKey.trim() ? (
+              <div className="px-3 py-1.5 rounded-xl bg-[#E3F1DF] border border-[#9DC395] text-[11px] font-bold text-[#2F572A] flex items-center justify-between gap-2">
+                <span className="flex items-center gap-1">
+                  <Zap className="w-3.5 h-3.5 shrink-0" />
+                  專屬 Gemini 2.5 極速通道（約 1～3 秒 · 思考延遲已關閉）
+                </span>
+                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-white/80 text-[#2F572A] shrink-0">
+                  直連中
+                </span>
+              </div>
+            ) : (
+              <div className="px-3 py-2 rounded-xl bg-[#FFF6E2] border border-[#E5C98B] text-[11px] text-[#5C3F2D] flex items-center justify-between gap-2 flex-wrap">
+                <span className="font-bold">
+                  ⏱️ 目前走<strong>免費共用雲端</strong>（拍照需排隊約 6～20 秒）
+                </span>
+                {onOpenSettingsForApiKey && (
+                  <button
+                    type="button"
+                    onClick={onOpenSettingsForApiKey}
+                    className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#2C241E] text-[#F3C85F] text-[10px] font-black shrink-0 hover:opacity-90 transition"
+                  >
+                    <KeyRound className="w-3 h-3" />
+                    填免費 Gemini Key → 秒變 2 秒
+                  </button>
+                )}
+              </div>
+            )}
+
             <input
               ref={cameraInputRef}
               type="file"
@@ -505,19 +728,52 @@ export const MealLoggerModal: React.FC<Props> = ({
             />
 
             {activePhotoUrl ? (
-              <div className="relative rounded-2xl overflow-hidden border border-[#DDD7C9] bg-[#EFECE3]">
-                <img
-                  src={activePhotoUrl}
-                  alt="餐點預覽"
-                  className="w-full max-h-48 object-cover"
-                />
-                <button
-                  type="button"
-                  onClick={() => galleryInputRef.current?.click()}
-                  className="absolute top-2 right-2 px-3 py-1 rounded-full bg-[#2C241E]/80 text-white text-xs font-bold"
-                >
-                  更換照片
-                </button>
+              <div className="space-y-2">
+                <div className="relative rounded-2xl overflow-hidden border border-[#DDD7C9] bg-[#EFECE3]">
+                  <img
+                    src={activePhotoUrl}
+                    alt="餐點預覽"
+                    className="w-full max-h-48 object-cover"
+                  />
+                  <button
+                    type="button"
+                    onClick={() => galleryInputRef.current?.click()}
+                    className="absolute top-2 right-2 px-3 py-1 rounded-full bg-[#2C241E]/80 text-white text-xs font-bold"
+                  >
+                    更換照片
+                  </button>
+                </div>
+                {/* Resolution / Speed Mode Switch */}
+                <div className="flex items-center gap-1.5 text-[11px]">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoQualityMode('fast');
+                      setManualQualityPinned(true);
+                    }}
+                    className={`flex-1 py-1.5 px-2.5 rounded-xl font-bold border transition ${
+                      photoQualityMode === 'fast'
+                        ? 'bg-[#485F44] border-[#2C241E] text-white'
+                        : 'bg-white border-[#DDD7C9] text-[#5C5044]'
+                    }`}
+                  >
+                    ⚡ 極速餐盤照 (680px · 快 2 倍)
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setPhotoQualityMode('hd');
+                      setManualQualityPinned(true);
+                    }}
+                    className={`flex-1 py-1.5 px-2.5 rounded-xl font-bold border transition ${
+                      photoQualityMode === 'hd'
+                        ? 'bg-[#25385B] border-[#2C241E] text-white'
+                        : 'bg-white border-[#DDD7C9] text-[#5C5044]'
+                    }`}
+                  >
+                    🔍 營養標示高清 (1280px · 讀小字)
+                  </button>
+                </div>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-3">
@@ -560,9 +816,30 @@ export const MealLoggerModal: React.FC<Props> = ({
                 rows={2}
                 value={descriptionText}
                 onChange={(e) => setDescriptionText(e.target.value)}
-                placeholder="可補充文字或直接描述（例如：雞腿便當飯吃一半＋無糖綠茶）"
+                placeholder="可補充文字或直接描述（例如：白飯半碗、高麗菜、番茄炒蛋、滷雞腿 → 0 秒免等直接秒算！）"
                 className="w-full rounded-2xl border border-[#D8D2C5] bg-white px-3.5 py-2.5 text-sm text-[#2C241E] placeholder:text-[#9E9487] focus:outline-none focus:border-[#C83B32]"
               />
+              {/* 0.01s Instant Local Text Estimator Bar */}
+              {instantTextMatch && !analyzing && (
+                <div className="px-3 py-2 rounded-xl bg-[#E3F1DF] border border-[#9DC395] flex items-center justify-between gap-2 flex-wrap">
+                  <div className="text-[11px] text-[#2F572A] min-w-0">
+                    <span className="font-black">
+                      ⚡ 免等秒認出 {instantTextMatch.matchedCount} 樣（約{' '}
+                      {instantTextMatch.totalCalories} kcal）：
+                    </span>
+                    <span className="truncate">
+                      {instantTextMatch.items.map((x) => x.name).join('、')}
+                    </span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={handleApplyInstantTextMatch}
+                    className="px-2.5 py-1 rounded-full bg-[#485F44] text-white text-[11px] font-black shrink-0 active:scale-95 transition"
+                  >
+                    ⚡ 0 秒直接帶入！
+                  </button>
+                </div>
+              )}
               <div className="flex flex-wrap gap-1.5">
                 {QUICK_NOTE_CHIPS.map((chip) => (
                   <button
@@ -578,24 +855,55 @@ export const MealLoggerModal: React.FC<Props> = ({
             </div>
 
             {(!isEditingExisting || Boolean(processedImg) || Boolean(existingPhotoPreview)) && (
-              <button
-                type="button"
-                disabled={analyzing || recalculating}
-                onClick={handleRunAiAnalysis}
-                className="w-full py-3.5 rounded-2xl bg-[#C83B32] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2 disabled:opacity-60"
-              >
-                {analyzing ? (
-                  <>
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    Quokka & BOBO 正在看照片聞香辨識中（約 3~8 秒）...
-                  </>
-                ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    {items.length > 0 ? '重新辨識整張照片' : '請 Quokka ＆ BOBO AI 幫我算卡路里！'}
-                  </>
+              <div className="space-y-2">
+                <button
+                  type="button"
+                  disabled={analyzing || recalculating}
+                  onClick={handleRunAiAnalysis}
+                  className="w-full py-3.5 rounded-2xl bg-[#C83B32] text-white font-black text-sm doodle-btn flex items-center justify-center gap-2 disabled:opacity-75"
+                >
+                  {analyzing ? (
+                    <>
+                      <Loader2 className="w-4 h-4 animate-spin shrink-0" />
+                      <span className="truncate">
+                        {analysisStage || 'Quokka & BOBO 正在看照片辨識中...'}（
+                        {elapsedSec.toFixed(1)}s）
+                      </span>
+                    </>
+                  ) : (
+                    <>
+                      <Sparkles className="w-4 h-4" />
+                      {items.length > 0
+                        ? '重新辨識整張照片'
+                        : !activePhotoUrl && instantTextMatch?.allMatched
+                          ? '⚡ 0 秒直接計算這餐卡路里！'
+                          : '請 Quokka ＆ BOBO AI 幫我算卡路里！'}
+                    </>
+                  )}
+                </button>
+                {analyzing && (
+                  <div className="flex items-center justify-between gap-2 px-1 text-[11px]">
+                    <button
+                      type="button"
+                      onClick={() => handleCancelAiAnalysis(false)}
+                      className="px-2.5 py-1 rounded-full bg-[#EFECE3] text-[#5C5044] font-bold hover:bg-[#E4E0D4]"
+                    >
+                      ✕ 取消等待
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => handleCancelAiAnalysis(true)}
+                      className={`font-bold underline ${
+                        elapsedSec >= 6 ? 'text-[#C83B32]' : 'text-[#6E6459]'
+                      }`}
+                    >
+                      {elapsedSec >= 6
+                        ? '等太久了？→ 改用 0 秒自助餐速查庫'
+                        : '或直接切去 0 秒美食速查 →'}
+                    </button>
+                  </div>
                 )}
-              </button>
+              </div>
             )}
           </div>
         ) : (
@@ -743,6 +1051,12 @@ export const MealLoggerModal: React.FC<Props> = ({
         {recalcSuccessMsg && (
           <div className="p-3 rounded-2xl bg-[#E3F1DF] border border-[#9DC395] text-xs font-bold text-[#2F572A]">
             {recalcSuccessMsg}
+          </div>
+        )}
+
+        {lastSpeedBadge && !recalcSuccessMsg && (
+          <div className="px-3 py-1.5 rounded-xl bg-[#FAF4EB] border border-[#E5CFB3] text-[11px] font-bold text-[#485F44] flex items-center justify-between gap-2">
+            <span>{lastSpeedBadge}</span>
           </div>
         )}
 

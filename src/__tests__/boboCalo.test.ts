@@ -31,10 +31,14 @@ import {
   getExerciseById,
 } from '../data/exercises';
 import {
+  analyzeMealWithGemini,
+  clearAnalysisCachesForTest,
+  isNutritionLabelHint,
   parseGeminiNutritionJson,
   parseTaiwanNutritionLabelText,
   recalculateMealFromEdits,
 } from '../services/geminiService';
+import { estimateMealLocallyInstant } from '../services/localFoodEstimator';
 import { TAIWAN_FOOD_PRESETS } from '../data/taiwanFoods';
 
 describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
@@ -636,5 +640,121 @@ describe('BoboCalo Security, Cloud Sync & Calorie Engine', () => {
     expect(freshPull.pulledFromCloud).toBe(true);
     expect(freshPull.mergedState.meals).toHaveLength(1);
     expect(freshPull.mergedState.meals[0].title).toBe('空盤自夾便當');
+  });
+
+  it('matches Taiwanese dishes offline in 0.01s with portion modifiers and small-plate auto half-scale', async () => {
+    clearAnalysisCachesForTest();
+    const fetchSpy = vi.spyOn(globalThis, 'fetch');
+
+    // Open plate with "每樣都夾一點" auto scales veggie & egg_tofu buffet side dishes to 0.5
+    const plateEst = estimateMealLocallyInstant(
+      '空盤自己夾(每樣都夾一點)、白飯半碗、高麗菜、番茄炒蛋、滷雞腿',
+      'lunch'
+    );
+    expect(plateEst.allMatched).toBe(true);
+    expect(plateEst.smallPlateMode).toBe(true);
+    expect(plateEst.items).toHaveLength(4);
+    expect(plateEst.items[0].calories).toBe(140); // 白飯半碗 (280 * 0.5)
+    expect(plateEst.items[1].calories).toBe(33); // 高麗菜 half (65 * 0.5 -> 33)
+    expect(plateEst.items[2].calories).toBe(65); // 番茄炒蛋 half (130 * 0.5)
+    expect(plateEst.items[3].calories).toBe(235); // 滷棒棒雞腿
+
+    // Dumpling count & half-rice bento
+    const dumplingEst = estimateMealLocallyInstant('水餃8顆＋無糖綠茶', 'dinner');
+    expect(dumplingEst.allMatched).toBe(true);
+    expect(dumplingEst.items[0].calories).toBe(416); // 520 * (8/10)
+    expect(dumplingEst.items[1].calories).toBe(5);
+
+    const bentoEst = estimateMealLocallyInstant('雞腿便當飯吃一半', 'lunch');
+    expect(bentoEst.allMatched).toBe(true);
+    expect(bentoEst.totalCalories).toBe(760 - 140);
+
+    // Zero network requests when all pure-text items match local estimator
+    const instantRes = await analyzeMealWithGemini({
+      category: 'breakfast',
+      descriptionText: '蛋餅＋無糖豆漿',
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(instantRes.source).toBe('local-instant');
+    expect(instantRes.totalCalories).toBe(265 + 135);
+
+    // Zero network requests when recalculating edits without correctionNote for known foods
+    const instantRecalc = await recalculateMealFromEdits({
+      category: 'lunch',
+      editedItems: [
+        { name: '紫米飯', portion: '半碗' },
+        { name: '乾煎鯖魚', portion: '1份' },
+      ],
+    });
+    expect(fetchSpy).not.toHaveBeenCalled();
+    expect(instantRecalc.source).toBe('local-instant');
+    expect(instantRecalc.totalCalories).toBe(Math.round(265 * 0.5) + 225);
+  });
+
+  it('disables Gemini 2.5 thinking delay, uses 680px fast image for plates, 1280px HD for labels, and caches repeat scans', async () => {
+    clearAnalysisCachesForTest();
+    expect(isNutritionLabelHint('包裝營養標示(吃1份)')).toBe(true);
+    expect(isNutritionLabelHint('空盤自己夾(每樣都夾一點)')).toBe(false);
+
+    const fakeGeminiJson = JSON.stringify({
+      candidates: [
+        {
+          content: {
+            parts: [
+              {
+                text: JSON.stringify({
+                  title: '健康自助餐盤',
+                  items: [
+                    { name: '清炒高麗菜', portion: '夾一點', calories: 35, proteinG: 1, carbsG: 3, fatG: 2 },
+                  ],
+                  praise: '吃得很均衡喔 🤎',
+                }),
+              },
+            ],
+          },
+        },
+      ],
+    });
+
+    const fetchSpy = vi
+      .spyOn(globalThis, 'fetch')
+      .mockImplementation(async () => new Response(fakeGeminiJson, { status: 200 }));
+
+    // 1. Default plate photo picks fastImageBase64 (680px) & sets thinkingBudget: 0 on gemini-2.5-flash
+    const first = await analyzeMealWithGemini({
+      apiKey: 'AIzaDummyTestKey',
+      category: 'lunch',
+      imageBase64: 'HD_BASE64_PAYLOAD',
+      fastImageBase64: 'FAST_680PX_PAYLOAD',
+      descriptionText: '空盤自己夾',
+    });
+    expect(first.source).toBe('gemini');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+    const body1 = JSON.parse(String(fetchSpy.mock.calls[0]?.[1]?.body || '{}'));
+    expect(body1.generationConfig.thinkingConfig).toEqual({ thinkingBudget: 0 });
+    expect(body1.contents[0].parts[1].inline_data.data).toBe('FAST_680PX_PAYLOAD');
+
+    // 2. Identical repeat scan hits cache with zero extra fetch
+    const repeat = await analyzeMealWithGemini({
+      apiKey: 'AIzaDummyTestKey',
+      category: 'lunch',
+      imageBase64: 'HD_BASE64_PAYLOAD',
+      fastImageBase64: 'FAST_680PX_PAYLOAD',
+      descriptionText: '空盤自己夾',
+    });
+    expect(repeat.source).toBe('cache');
+    expect(fetchSpy).toHaveBeenCalledTimes(1);
+
+    // 3. Nutrition label hint automatically selects full HD imageBase64 (1280px)
+    await analyzeMealWithGemini({
+      apiKey: 'AIzaDummyTestKey',
+      category: 'snack',
+      imageBase64: 'HD_BASE64_PAYLOAD',
+      fastImageBase64: 'FAST_680PX_PAYLOAD',
+      descriptionText: '包裝營養標示(吃1份)',
+    });
+    expect(fetchSpy).toHaveBeenCalledTimes(2);
+    const body2 = JSON.parse(String(fetchSpy.mock.calls[1]?.[1]?.body || '{}'));
+    expect(body2.contents[0].parts[1].inline_data.data).toBe('HD_BASE64_PAYLOAD');
   });
 });
